@@ -1,0 +1,59 @@
+;INIT ALL SWITCHES FOR CF TO 0.
+
+.DEFINE FOOLIST[] [ XLIST ]
+
+!-.INSERT-'SWINIT.SLO'-! = 0  ;ERROR MESSAGE FOR LOSERS
+
+F2SW = 1	; SET F2SW = 1 FOR F2,  F2SW = 0 FOR F3
+
+FAST = 1	;IF 0, ALL CYCLES ARE 500NS OR MORE.
+
+SLOW1 = 1	;MAKES 350NS CYCLES LONGER BY 50*SLOW1 NS. DWP 2/10
+
+SLOW2 = 0	;MAKES 400NS CYCLES LONGER BY 50*SLOW2 NS.
+
+TYMNET = 0
+
+DR11P = 0
+
+TLXTAPE = 0
+
+125TAPE = 0
+
+SLOWTAPE = 0
+
+KNYTAPE = 0
+
+NTP = 0		;NEW TAPE CTRL (DMA TYPE)
+
+TAPE = 0	;New tape ctrl with long records.
+
+75IPS = 0	;Not 75IPS drive -- implies 125IPS
+
+DLS = 0
+
+IMP = 0
+IMP1 = 0	;HIGH U-MEM VERSION OF IMP
+
+WK = 0		;Walt's Kluge
+
+VID = 0		;FooVision
+VIC2 = 0	;Smart video controler (with sysnthsis)
+
+LPT = 0		;Lineprinter (Printronix, etc.)
+
+VC = 0		;Versatec/Varian plotter interface.
+
+NEWMAP = 1	;SET FOR MACHINES F3-3 AND LATER.
+
+CROCK = 1	;set to 1 to get some old crockish code back
+
+DEBUGSW = 0	;Set to 1 to get some debugging crocks
+
+TIMER = 0	;INTERVAL TIMER
+
+STANSW = 0	;Special Stanford I/O devices
+
+WAITS = 0	;BBN Pager was modified for WAITS
+
+XUCODE = 0	;Set to 1 (exactly !) if 8k u-memory present.

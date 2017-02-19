@@ -1,0 +1,628 @@
+COMMENT	%
+
+The IMP interface is device number 16.
+
+The INPUT subselect MAPFs are:
+2	Status Register
+4	Data Register
+
+The OUTPUT subselect MAPFs are:
+0	Clear Input (Reset)
+1	Clear Input Full	(this clears the input interrupt condition)
+2	Clear Output (Reset)
+3	Data Output
+4	Control Register
+
+The Status Register is divided into the following fields:
+0:5	Output Counter
+6:11	Input Counter
+12	Output Empty
+13	Output Ready (maintenence use only)
+14	Output Needs Data
+15	Last IMP Bit
+16	Last IMP Bit Seen
+17	Input Ready (maintenence use only)
+18	Input Full
+19	-IMP Ready [DWP was confused]
+
+The Control Register is divided as follows:
+32	Host Ready
+33	Last Output Word
+34	Input Interrupt Enable
+35	Ouput Interrupt Enable
+
+
+The relevant Status Register information is as follows:
+
+Input Counter:  This is an UP counter which tells how many places to left
+shift the Input Data.
+
+Output Needs Data:  This indicates the interface is ready to accept more
+output, and causes an interrupt if Output Interrupt is enabled.  Note that
+if Last Host Bit is being sent, Output Empty will be true, but Output Needs
+Data will be false (and if you try to send a word at this time, you will
+lose).
+
+Last Imp Bit Seen and Input Full both indicate the IMP has finished input
+to the interface.  These cause an interrupt if Input Interrupt is enabled.
+
+Output Ready and Input Ready change dynamically during transmission and
+and on when hardware is ready to transfer a bit.  They may change during
+micro-instruction and should not be depended on.
+
+The Control register cannot be read, so a copy of it is kept in the A-MEM.
+
+
+The (scanty) information on the BBN Standard IMP-10 interface, which we are
+emulating, specify the following CONI and CONO bit assignments:
+
+ ----------- ----------- ----------- ----------- ----------- -----------
+|   |   |   |   |   |   |   |           |   |           |   |           |
+|   |DEV|IMP|ERR|   |   |EIB|  PI CHAN  |OUT|  PI CHAN  |INP|  PI CHAN  |
+|   |ON |DWN|   |   |   |   |           |   |           |   |           |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+|18       20|           |24         |27         |         32|33       35|
+
+CONI:	Means:			Emulated with:
+19	Interface is powered	On if interface responds with other than -1
+20	IMP is now down		- IMP Ready
+21	IMP has been down	(flip-flop simulated in firmware)
+24	End of Input		Last IMP bit seen (16)
+25:27   PI Channel for Bit 24
+28	Ready for Output	Output Needs Data (14)
+29:31   PI Channel for Bit 28
+32	Input Ready		Input Full (18)
+33:35   PI Channel for Bit 32
+
+(Note: by special dispensation, if the Status Register is -1 (meaning the IMP
+is not connected or something) a CONI returns all bits zero.)
+
+(*This code may need to read back END OUT (bit 22) and the PI channels???*)
+
+ ----------- ----------- ----------- ----------- ----------- -----------
+|   |   |   |   |   |   |               |               |               |
+|   |CLR|HST|CLR|END|CLR|SET| LAST BIT  |SET|OUTPUT RDY |SET| INPUT RDY |
+|   |ERR|DWN|OUT|OUT|IEB|   | PI CHAN   |   | PI CHAN   |   | PI CHAN   |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+|18       20|21       23|24       26|27       29|30       32|33       35|
+
+CONO:	Means:			Emulated with:
+19	Clear IMP has been down	(simulated in firmware)
+20	Host Down		- Host Ready (32)
+21	Stop Output		Clear Output MAPF
+22	End of Output		Last Output Word (33)
+23	Clear EIB		Clear Input, Clear Input Full MAPFs
+24	set PI channel in bits 25:27
+25:27	PI channel for End of Input (See note below)
+28	set PI channel in bits 29:31
+29:31	PI channel for Ready for Output
+32	set PI for Input Ready channel from bits 33:35
+33:35	PI channel for Input Ready
+
+(Note: "IMP has been down" is also referred to as the "Error Flop")
+
+END OF COMMENT	%
+
+;------------------------------------------------------------------------------
+; Definitions for IMP
+;------------------------------------------------------------------------------
+IMPUDEV	= 16		;uDevice code for first IMP.  Second (for Packet Radio)
+			;must be IMPUDEV+1 for this code to work.
+
+;	Input MAPFs
+IMPI-CONTROL	= 2
+IMPI-DATA	= 4
+
+;	Output MAPFs
+IMPO-CLEAR-INPUT	= 0
+IMPO-CLEAR-FULL		= 1
+IMPO-CLEAR-OUTPUT	= 2
+IMPO-DATA		= 3
+IMPO-CONTROL		= 4
+
+;	A-Memory
+IMPA-VECTOR	= 0
+IMPA-CONTROL	= 1
+;Skip 2 - DEST-A-MEM clobbers IR on 2 and 3
+IMPA-MASK	= 3
+IMPA-STATUS	= 4
+IMPA-HALF	= 5	;First Part Done flag for BLKO
+
+.DEFINE D-AMEM[ X ] [ D[X + 8.] ]
+;------------------------------------------------------------------------------
+;Instruction Decode
+;------------------------------------------------------------------------------
+IMPIO2:		;;;Save current location
+:IMP-IOT	;;;Fill in main instruction decode
+	D[IR] ROT[9. + 1] MASK[1] DEST[Q] NORM $
+		;Get type of IMP interface (0 - normal, 1 - packet radio)
+	D[CONST IMPUDEV] ALU[D+Q] DEST[DEV-ADR] JUMP[IMPIO2] NORM $
+		;Select aproprate device code
+	;(Only two instructions allowed above)
+:IMPIO2		;;;Resume regular code
+	D[IR] ROT[12. + 1 + 1] MASK[4] DEST[Q] NORM $
+		;Get IOT instruction decode
+		;Extra rotation means two micro-instructions per decode.  We
+		;can do this because indirection and indexing is complete and
+		;their bits cleared by the time we get here.
+	D-AMEM[IMPA-VECTOR] ROT[18.] MASK[16.] ALU[D+Q] SDISP CYLEN[DISP] $
+		;Dispatch according to instruction
+
+;------------------------------------------------------------------------------
+;IOT dispatch for IMP (and IMP2)
+;------------------------------------------------------------------------------
+IMPDSP:
+;BLKI IMP,
+	FIXM2 PUSHJ[BLKI1] $
+		;Do first part of BLKI
+	D[MEM] DEST[MA] SPEC[IOB-IN] JUMP[IMPBKI] NORM $
+		;Set MA for writing new data (i.e. finish first part of BLKI).
+		;Start reading data from IMP
+		;*** This instruction have the same function as IMPIN
+	;(Continued below)
+;DATAI IMP,
+	FIXM2 PUSHJ[IMPIN] $
+		;Read word from IMP interface
+		;While we're at it, make sure we don't page fault later
+	DEST[STRT-WRT] MEMST $
+		;Write data into memory.  We're done.
+;BLKO IMP,
+	FIXM2 PUSHJ[BLKO1] $
+		;Do first part of a BLKO instruction
+	D-AMEM[IMPA-CONTROL] DEST[Q] JUMP[IMPBKO] NORM $
+		;Copy into Q so we can manipulate control word
+		;*** This instruction should be same as at IMPOUT
+	;(Continued below)
+
+;DATAO IMP,
+	FIXM1 PUSHJ[IMPOUT] $
+		;Send word to IMP interface
+	DONTSKIP NORM $
+		;Start next instruction fetch
+;CONO IMP,
+	D[IR] ROT[19.] COND[-OBUS<0] JUMP[IMPCO2] C550 $
+		;Jump if not clearing Imp Has Been Down (error flop)
+	D-AMEM[IMPA-STATUS] DEST[Q] JUMP[IMPCNO] NORM $
+		;Get status so we can remove that bit
+	;(Continued below)
+;CONI IMP,
+	FIXM2 PUSHJ[IMPSTS] SPEC[IOB-IN] $
+		;Get device status.  Make sure we don't page fault later.
+	ALU[Q] DEST[MEMSTO] MEMST $
+		;Write result into memory.  We're done.
+;CONSZ IMP,
+	PUSHJ[IMPSTS] SPEC[IOB-IN] NORM $
+	D[IR] ALU[D&Q] COND[OBUS=0] LBJUMP[SKMAIN] C550 $
+		;Decide whether to skip.  Start next instruction.
+;CONSO IMP,
+	PUSHJ[IMPSTS] SPEC[IOB-IN] NORM $
+	D[IR] ALU[D&Q] COND[-OBUS=0] LBJUMP[SKMAIN] C550 $
+		;Decide whether to skip.  Start next instruction.
+
+;------------------------------------------------------------------------------
+;BLKI IMP,	(continued)
+;------------------------------------------------------------------------------
+IMPBKI:	MAPF[IMPI-CONTROL] CYLEN[IOB-IN] D[IOD] DEST[AR] PUSHJ[IMPIN1] $
+		;Read control register and save it (i.e. second inst. of IMPIN)
+		;Do second instruction of IMPIN and begin IMPIN
+		;*** This instruction should be same as at IMPIN+1
+	D[MEM] DEST[MEMSTO] MEMST $
+		;Write data.  We're done
+
+;------------------------------------------------------------------------------
+;BLKO IMP,	(continued)
+;------------------------------------------------------------------------------
+IMPBKO:	D[CONST 4] ALU[-D&Q] DEST[Q IOD] SPEC[IOB-OUT] PUSHJ[IMPOU1] NORM $
+		;Turn off LAST BIT before doing output
+		;*** This instruction should be same as at IMPOUT+1
+		;Finish doing output
+	D[AR] SPEC[LEFT] COND[OBUS=0] JUMP[MAIN] NORM $
+		;Check for skip.  If not, we're done
+	DOSKIP $
+		;Skip return
+
+;------------------------------------------------------------------------------
+;CONO IMP,	(continued)
+;------------------------------------------------------------------------------
+IMPCNO:	D[CONST 1] ROT[35. - 21.] ALU[-D&Q]
+			DEST[Q IMPA-STATUS] SPEC[DEST-A-MEM] NORM $
+		;Clear Imp Has Been Down
+IMPCO2:	D[IR] ROT[20. + 1] MASK[1] ALU[D+1] DEST[AR] NORM $
+		;Extract host down bit.  Complement it, sort of.
+	D-AMEM[IMPA-CONTROL] MASK[3] DEST[Q] NORM $
+		;Extract all but host ready bit.
+		;*** Note, if other control bits are added, this code will lose
+	D[AR] ROT[3] MASK[4] ALU[DORQ] DEST[Q] NORM $
+		;Turn on host ready bit.  Note MASK[4] allow complementing of
+		;single bit, i.e. 0->01->1, 1->10->0
+	D[IR] ROT[21.] COND[-OBUS<0] JUMP[IMPCO3] C550 $
+		;Stop output?
+	D[CONST 1] ALU[-D&Q] DEST[Q] SPEC[IOB-OUT] NORM $
+		;Yes.  Stop it from interrupting.  Start clearing output
+	MAPF[IMPO-CLEAR-OUTPUT] CYLEN[IOB-OUT]
+		D[IR] ROT[22.] COND[-OBUS<0] JUMP[IMPC3A] $
+		;Finish clearing output.
+		;If not also clearing output, go clear Output Empty.
+IMPCO3:	D[IR] ROT[22.] COND[-OBUS<0] JUMP[IMPCO4] $
+		;End of output (message)?
+	D[CONST 5] ALU[DORQ] DEST[Q] SPEC[IOB-IN] NORM $
+		;Turn on Last Bit and interrupt enable.  (Turned off by next
+		;DATAO).  We'll pass it to the hardware later.
+		;Read status of device
+	MAPF[IMPI-CONTROL] CYLEN[IOB-IN] D[IOD] DEST[AR] $
+		;Latch state of interface, 'cause we can't condition off IOD
+;;;	D[AR] ROT[12.] COND[OBUS<0] JUMP[IMPC3A] C550 $
+;;;		;Jump if interface isn't done.  (We should be here in that case
+;;;		;as the programmer is supposed to wait for things to finish.)
+	D[AR] ROT[14.] COND[OBUS<0] JUMP[IMPC3A] C550 $
+		;Jump if there's a word already in progress
+	ALU[0] DEST[IOD] SPEC[IOB-OUT] NORM $
+		;Interface can't send last bit without having something to
+		;attach it to.  We send a word of zeros, which shouldn't
+		;matter, as this feature is used only to clear out any stale
+		;packets when bringing up host.
+		;MAPF and CYLEN are in case we had to deflower the interface.
+IMPC3A:	MAPF[IMPO-DATA] CYLEN[IOB-OUT] ALU[Q] DEST[IMPA-CONTROL] DEST-A-MEM $
+		;Save state of control register
+	D-AMEM[IMPA-STATUS] DEST[Q] NORM $
+		;Get status of device into Q where we can use it.
+	D[CONST 1] ROT[35. - 28.] ALU[-D&Q] DEST[IMPA-STATUS] DEST-A-MEM NORM $
+		;Turn off Output Ready
+	D-AMEM[IMPA-CONTROL] DEST[Q] JUMP[IMPC4A] $
+		;Restore Q from CONTROL
+IMPCO4:	MAPF[IMPO-DATA] CYLEN[IOB-OUT]
+			ALU[Q] DEST[IMPA-CONTROL] SPEC[DEST-A-MEM] $
+IMPC4A:	D[IR] ROT[23.] COND[-OBUS<0] JUMP[IMPCO5] C550 $
+		;Clear input?
+	D[CONST 2] ALU[DORQ] DEST[AR] SPEC[IOB-OUT] NORM $
+		;Yes.  Set input enable.  Clear input buffer.
+	MAPF[IMPO-CLEAR-INPUT] CYLEN[IOB-OUT]
+			D-AMEM[IMPA-STATUS] DEST[Q] SPEC[IOB-OUT] $
+		;Clear input done.  Get firmware status
+	MAPF[IMPO-CLEAR-FULL] CYLEN[IOB-OUT] 
+			D[AR] DEST[IMPA-CONTROL] SPEC[DEST-A-MEM] $
+		;Remember new control value.  Don't set it yet, let DMA happen
+		;(We'll pass it to the hardware later.)
+	D[CONST 1] ROT[35. - 24.] ALU[-D&Q] DEST[Q] NORM $
+		;Remove Last Bit from status.  Finally send out control word
+		;to hardware! (Remember we set IOD above?)
+	D[CONST 1] ROT[35. - 32.] ALU[-D&Q]
+			DEST[IMPA-STATUS] SPEC[DEST-A-MEM] NORM $
+		;Remove Input Full from status.
+	D[CONST 2] DEST[7] DEST-A-MEM SHORT $
+		;Set debugging flag for intrpt. routine
+IMPCO5:	D-AMEM[IMPA-MASK] DEST[Q] NORM $
+		;Get special mask
+	D[IR] ALU[D&Q] DEST[Q AR] COND[OBUS=0] JUMP[IMPCOX] NORM $
+		;Extract channel selection
+	D[AR] ROT[36. - 3] ALU[Q-D] DEST[Q AR] NORM $
+		;Make into masks for PI setting.  Three separate three
+		;bit masks, i.e. .xxx.yyy.zzz from x...y...z...
+	D[IR] ALU[D&Q] DEST[HOLD] NORM $
+		;Extract new fields
+	D-AMEM[IMPA-STATUS] DEST[Q] NORM $	;Stupid 2901
+	D[AR] ALU[-D&Q] DEST[Q] NORM $
+		;Remove old PI channel settings
+	D[MEM] ALU[DORQ] DEST[IMPA-STATUS] SPEC[DEST-A-MEM] NORM $
+		;Finally, put away PI channel settings to make it easy for CONI
+	D-AMEM[IMPA-CONTROL] DEST[Q] $
+		;Cause interrupts if needed
+	D[MEM] ROT[35. - 31.] MASK[3] COND[OBUS=0] JUMP[IMPCO6] $
+		;Enable output interrupts if we turned that channel on.
+	D[CONST 1] ALU[DORQ] DEST[Q IMPA-CONTROL] SPEC[DEST-A-MEM] NORM $
+		;Yes, enable it.  We'll pass it to the hardware later.
+IMPCO6:	D[MEM] ROT[35. - 31.] MASK[3] COND[OBUS=0] JUMP[IMPCOX] $
+		;Enable input interrupts if we turned that channel on.
+	D[CONST 2] ALU[DORQ] DEST[Q IMPA-CONTROL] SPEC[DEST-A-MEM] NORM $
+		;Yes, enable it.  We'll pass it to the hardware later.
+IMPCOX:	D-AMEM[IMPA-CONTROL] DEST[IOD] SPEC[IOB-OUT] NORM $
+		;Update hardware.
+	MAPF[IMPO-CONTROL] CYLEN[IOB-OUT] DEST[MA] SPEC[MA_PC] JUMP[MAIN1] $
+		;Complete output and start next instruction fetch.
+
+;------------------------------------------------------------------------------
+;IMPSTS		Get status from IMP
+;
+;Description:
+;   Updates IMP down bits and returns firmware status.
+;
+;Returns:
+;	Q:	Status
+;Called by:	IMPCONI,IMPCONSZ,IMPCONSO
+;Calls:		Nothing
+;Clobbers:	Q,IOD,AR
+;------------------------------------------------------------------------------
+IMPSTS:	D-AMEM[IMPA-STATUS] DEST[Q] SPEC[IOB-IN] NORM $
+		;Copy firmware status into Q
+	MAPF[IMPI-CONTROL] CYLEN[IOB-IN] D[IOD] DEST[AR] PUSHJ[IMPDWC] $
+		;Obtain hardware status in AR
+		;Check IMP down status
+	D[AR] ALU[NOTD] COND[-OBUS=0] POPJ C550 $
+		;If we read -1 from device, it isn't really here.
+		;Otherwise, we're done.
+	ALU[0] DEST[Q] POPJ NORM $
+		;Device just plain isn't there.  This is what is returned on
+		;a non-existent device.
+
+;Subroutine to check for host down
+IMPDWC:	D[AR] ROT[19.] COND[-OBUS<0] POPJ C550 $
+		;Return if not down
+	D[CONST 1] ROT[35. - 21.] ALU[DORQ]
+			DEST[Q IMPA-STATUS] SPEC[DEST-A-MEM] NORM $
+		;Set error flip-flop
+	D[CONST 1] ROT[35. - 20.] ALU[DORQ] DEST[Q] NORM POPJ $
+		;Set host down and return.
+
+;------------------------------------------------------------------------------
+;IMPIN		Read word from IMP
+;
+;Returns:
+;	MEM:	Data
+;Called by:	IMPDATAI,IMPBLKI
+;Calls:		Nothing
+;Clobbers:	Q,IOD,AR,HOLD,ROTR,MASKR
+;
+;Note:	To save time at no expense in space, first two instruction here are
+;	functionally replicated for BLKI IMP,
+;------------------------------------------------------------------------------
+IMPIN:	SPEC[IOB-IN] CYLEN[FIXM] $
+		;A write cycle happens here on BLKI
+		;*** Don't change this without changing BLKI IMP,
+	MAPF[IMPI-CONTROL] CYLEN[IOB-IN] D[IOD] DEST[AR] $
+		;Read control register and save it.
+		;*** Don't change this without changing BLKI IMP,
+IMPIN1:	D[AR] ROT[11. + 1] MASK[6] ALU[0-D] DEST[ROTR] SPEC[IOB-IN] NORM $
+		;Setup Rotator.  Start reading data
+	MAPF[IMPI-DATA] CYLEN[IOB-IN] D[IOD] ROT[R] DEST[Q HOLD] $
+		;Put adjusted data into HOLD (MEM).  Save also in Q
+	D[AR] ROT[16.] COND[-OBUS<0] JUMP[IMPIN3] C550 $
+		;Jump if not Last Bit Seen, that is, the easy case
+	D[CONST 1] ROT[R] ALU[D-1] COND[OBUS=0] JUMP[IMPIN3] NORM $
+		;*** If we read exactly one word, don't mess with it!  Note
+		;*** that we still have to OR in a bit at the bottom (i think)
+	D[AR] ROT[11. + 1] MASK[6] ALU[0-D] DEST[MASKR] NORM $
+		;Setup Masker
+	;;;D[MASK R] ALU[-D&Q] DEST[Q] NORM $	;*** Assembler blows this one
+	D[2] MASK[R] ALU[-D&Q] DEST[Q] NORM $	;Sigh...
+		;Pad with zeros, that is, get rid of extra junk
+IMPIN2:	D[CONST 1] ROT[R] ALU[DORQ] DEST[Q HOLD] NORM $
+		;Last bit implies last bit is a one (1).  Force it
+IMPIN3:	D-AMEM[IMPA-CONTROL] DEST[Q] SPEC[IOB-OUT] NORM $
+		;Get control information into more convenient place
+		;Setup for next input.
+	MAPF[IMPO-CLEAR-FULL] CYLEN[IOB-OUT] D[CONST 2] ALU[DORQ]
+			DEST[Q IMPA-CONTROL] SPEC[DEST-A-MEM] $
+		;Turn on input interrupt enable
+	ALU[Q] DEST[IOD] SPEC[IOB-OUT] SHORT $
+		;Tell hardware about this
+	MAPF[IMPO-CONTROL] CYLEN[IOB-OUT] D-AMEM[IMPA-STATUS] DEST[Q] $
+		;Finish setting hardware control register.
+		;Get firmware status
+	D[CONST 1] ROT[35. - 32.] ALU[-D&Q] DEST[IMPA-STATUS] SPEC[DEST-A-MEM]
+			POPJ NORM $
+		;Turn off input ready, and return.
+
+;------------------------------------------------------------------------------
+;IMPOUT		Output data in MEM to IMP
+;
+;Description:
+;   Sends data in MEM to IMP interface.  Enables micro-interrupts for
+;completion of transfer.
+;
+;Called by:	IMPDATAO,IMPBLKO
+;Calls:		Nothing
+;Clobbers:	Q,IOD
+;
+;Note:	To save time at no expense in space, first two instruction here are
+;	functionally replicated for BLKO IMP,
+;------------------------------------------------------------------------------
+IMPOUT:	D-AMEM[IMPA-CONTROL] DEST[Q] NORM $
+		;Copy into Q so we can manipulate control word
+		;*** Don't change this without changing BLKO IMP,
+	D[CONST 4] ALU[-D&Q] DEST[Q IOD] SPEC[IOB-OUT] NORM $
+		;Turn off LAST BIT before doing output
+		;*** Don't change this without changing BLKO IMP,
+IMPOU1:	MAPF[IMPO-CONTROL] CYLEN[IOB-OUT] D[MEM] DEST[IOD] SPEC[IOB-OUT] $
+		;Output data ...
+	MAPF[IMPO-DATA] CYLEN[IOB-OUT]
+			D[CONST 1] ALU[DORQ] DEST[Q IOD] SPEC[IOB-OUT] $
+		;Enable output interrupts
+	MAPF[IMPO-CONTROL] CYLEN[IOB-OUT]
+			ALU[Q] DEST[IMPA-CONTROL] SPEC[DEST-A-MEM] $
+		;Remember we turned it on.
+	D-AMEM[IMPA-STATUS] DEST[Q] NORM $
+		;Turn off bit in status
+	D[CONST 1] ROT[35. - 28.] ALU[-D&Q] DEST[IMPA-STATUS] SPEC[DEST-A-MEM]
+			POPJ NORM $
+		;Write it back and we're done
+
+;------------------------------------------------------------------------------
+;IMP Interrupt Code
+;------------------------------------------------------------------------------
+IMPINT:	D-AMEM[IMPA-STATUS] DEST[Q] SPEC[IOB-IN] NORM $
+		;Get firmware status while waiting for hardware status.
+	MAPF[IMPI-CONTROL] CYLEN[IOB-IN] D[IOD] DEST[HOLD] $
+		;Get hardware status
+;;;	D[CONST 21] ROT[3] ALU[-D&Q] DEST[Q] NORM $
+;;;		;Remove old Input Full and Output Done status bits
+	D[MEM] ROT[19.] COND[-OBUS<0] JUMP[IMPNT1] C550 $
+		;Check for IMP down
+	D[CONST 1] ROT[35. - 21.] ALU[DORQ]
+			DEST[Q IMPA-STATUS] SPEC[DEST-A-MEM] NORM $
+		;Set error flip-flop
+IMPNT1:	D[MEM] ROT[14.] COND[-OBUS<0] JUMP[IMPNT2] C550 $
+		;Jump if output not waiting.
+	D-AMEM[IMPA-CONTROL] MASK[1] C550 OBUS=0 JUMP[IMPNT2] $
+		;Ignore if output ints. not enabled !!
+	D[CONST 1] ROT[35. - 28.] ALU[DORQ]
+			DEST[Q IMPA-STATUS] SPEC[DEST-A-MEM] NORM $
+		;Turn on Ready for Output
+	D-AMEM[IMPA-STATUS] ROT[31. + 1] MASK[3] DEST[AR] NORM $
+		;Extract PI channel for use by IMPNTS
+	D[CONST 1] DEST[Q] PUSHJ[IMPDIS] NORM $
+		;Turn off output interrupts and take macro interrupt if enabled
+IMPNT2:	D[MEM] ROT[18.] COND[-OBUS<0] JUMP[IMPNT5] C550 $
+		;Jump if input not ready
+	D[MEM] ROT[16.] COND[OBUS<0] JUMP[IMPNT6] C550 $
+		;Jump if both input and last bit at same time.  We'll want two
+		;macro interrupts
+IMPNT3:	D[CONST 1] ROT[35. - 32.] ALU[DORQ]
+			DEST[Q IMPA-STATUS] SPEC[DEST-A-MEM] NORM$
+		;Turn on Input Full
+	D-AMEM[IMPA-STATUS]  ROT[35. + 1] MASK[3] DEST[AR] NORM $
+		;Extract PI channel for use by IMPNTS
+IMPNT4:	D[CONST 2] DEST[Q] PUSHJ[IMPDIS] NORM $
+		;Turn off input interrupts and take macro interrupt if enabled
+IMPNTX:	DEST[CLR-DEV-FROM-INTR MA] SPEC[MA_PC] JUMP[MAIN1] NORM $
+		;Nothing more to check.  Dismiss micro-interrupt
+IMPNT5:	D[MEM] ROT[16.] COND[-OBUS<0] JUMP[IMPNTX] C550 $
+		;Done if not last bit seen
+IMPNT6:	D[CONST 1] ROT[35. - 24.] ALU[D&Q] COND[-OBUS=0] JUMP[IMPNT7] NORM $
+		;If this is our second time thru, take interrupt for Last Bit
+	D[CONST 1] ROT[35. - 24.] ALU[DORQ]
+			DEST[Q IMPA-STATUS] SPEC[DEST-A-MEM] NORM $
+		;Turn on Last Bit Seen
+		;Input is one and Last Bit is off (or are different)
+;;; Always give input full, once only
+;;;	D[MEM] ROT[5 + 1] MASK[6] DEST[Q] NORM $
+;;;		;Get input bit counter
+;;;	D[CONST 34] ALU[D-Q] COND[OBUS=0] JUMP[IMPNT7] C550 $
+;;;		;Jump if just last bit on
+;;;	D-AMEM[IMPA-STATUS] DEST[Q] NORM $
+;;;		;Get new firmware status and mark input buffer full
+	D[CONST 1] ROT[35. - 32.] ALU[DORQ]
+			DEST[IMPA-STATUS] SPEC[DEST-A-MEM] NORM $
+	D-AMEM[IMPA-STATUS]  ROT[35. + 1] MASK[3] DEST[AR]
+			COND[-OBUS=0] JUMP[PIGEN] $
+		;Extract PI channel and take interrupt here and now if enabled
+		;DON'T disable micro input interrupts until we make a second
+		;PI Request for the Last Bit!
+IMPNT7:	D-AMEM[IMPA-STATUS]  ROT[27. + 1] MASK[3] DEST[AR] JUMP[IMPNT4] NORM $
+		;Extract PI channel for use by IMPNTS
+;------------------------------------------------------------------------------
+;IMPDIS		Disable IMP micro-interrupts and take PI if enabled.
+;
+;Arguments:
+;	AR:	Channel number
+;	Q:	Enable bit (in IMPA-CONTROL)
+;
+;Note:	Restores Q to control IMPA-STATUS.  May not return if interrupt is
+;	taken.
+;------------------------------------------------------------------------------
+IMPDIS:	D-AMEM[IMPA-CONTROL] ALU[D&Q] COND[OBUS=0] JUMP[IMPDSX] C550 $
+		;If interrupt disabled, forget it.  Restore Q and return
+	D-AMEM[IMPA-CONTROL] ALU[D-Q] DEST[Q IOD] SPEC[IOB-OUT] NORM $
+		;Disable interrupt
+		;We can do subtract since we've already established there's
+		;a bit to turn off
+	MAPF[IMPO-CONTROL] CYLEN[IOB-OUT]
+			ALU[Q] DEST[IMPA-CONTROL] SPEC[DEST-A-MEM] $
+		;Remember enablings as well.
+	D[AR] COND[-OBUS=0] JUMP[PIGEN] NORM $
+		;Try to take macro interrupt if channel supplied
+IMPDSX:	D-AMEM[IMPA-STATUS] DEST[Q] POPJ NORM $
+		;Get back firmware status and return
+;------------------------------------------------------------------------------
+;IMPRST		IMP initialization routine
+;
+;Called by:	Reset
+;Calls:		Nothing
+;Clobbers:	AMEM[0:7],Q,IOD,DEV-ADR
+;
+;Note:	This code appear after IMPINT and IMPDSP due to forward reference
+;	problems in CONST expressions.
+;------------------------------------------------------------------------------
+IMPRST:	D[CONST IMPUDEV] DEST[DEV-ADR] $
+		;Set device code for initialization
+;Entry point for second IMP
+IMPRS2:	ALU[0] DEST[IMPA-CONTROL] SPEC[DEST-A-MEM] NORM $
+		;Reset saved control register
+	D[CONST 1] ROT[35. - 19.] DEST[Q] NORM $
+	D[CONST 1] ROT[35. - 28.] ALU[DORQ] DEST[IMPA-STATUS] DEST-A-MEM NORM $
+		;Initially, have just interface present and output ready.
+		;If harware isn't there, then IMPSTS will return zero.
+	D-AMEM[IMPA-CONTROL] DEST[IOD] SPEC[IOB-OUT] NORM $
+		;Clear the device registers ...
+	MAPF[IMPO-CONTROL] CYLEN[IOB-OUT] ALU[0] DEST[IOD] SPEC[IOB-OUT] $
+		;Reset control register
+	MAPF[IMPO-CLEAR-OUTPUT] CYLEN[IOB-OUT] SPEC[IOB-OUT] $
+		;Clear output side
+	MAPF[IMPO-CLEAR-INPUT] CYLEN[IOB-OUT]
+;;;			SPEC[IOB-OUT]
+;;; 		;I don't think we want to start input until we're told via CONO
+			D[CONST 42] ROT[6] DEST[Q] DEST[IOD] $
+		;Start construction of mask for PI's and status bits
+		;Clear input side
+		;NOTE: input MAPFs must go in this order
+	MAPF[IMPO-CLEAR-FULL] CYLEN[IOB-OUT]
+			D[CONST 10] ALU[DORQ] DEST[IMPA-MASK] SPEC[DEST-A-MEM]$
+		;Finish and store mask for PI's and status bits
+;Setup entry vectors: IOT vector in left half, interrupt vector in right half
+	D[CONST (IMPDSP / 100)] ROT[18. + 6.] DEST[Q] NORM $	;hi 6 iot bits
+	D[CONST (IMPDSP \ 100)] ROT[18.] ALU[DORQ] DEST[Q] NORM $
+		;low order 6 iot bits
+	D[CONST (IMPINT / 100)] ROT[6.] ALU[DORQ] DEST[Q] NORM $
+		;high order 6 interrupt bits
+	D[CONST (IMPINT \ 100)] ROT[0] ALU[DORQ]		;lo 6 intr bits
+			SPEC[DEST-A-MEM] DEST[IMPA-VECTOR] POPJ NORM $
+		;Finish setting up vectors and return.
+
+;------------------------------------------------------------------------------
+;BLKI1,BLKI2	Two parts of a BLKI instruction
+;------------------------------------------------------------------------------
+BLKI1:	D[MEM] DEST[Q] NORM $
+		;Put IOWD pointer into Q to do incrementing.  No HALF test,
+		;we don't worry about page faults here.
+	D[CONST 1,,1] ALU[D+Q] DEST[Q MEMSTO] COND[-MA-AC] JUMP[BLKI1A] NORM $
+		;Increment both halves. (Note: overflow will from right half
+		;will be added to left half.  People who wrap around memory
+		;deserve what they get!)
+	ACSEL[MA] D[MEM] DEST[AC] CYLEN[MEMSTO] $
+		;Also write into AC if needed
+BLKI1A:	D[MEM] SPEC[LEFT] COND[OBUS=0] POPJ CYLEN[MEMSTO] $
+		;Finish writing back IOWD pointer. No MAPF needed because of
+		;FIXM2.
+		;Return if not skip return
+                D[PC] ALU[D+1] DEST[PC] POPJ NORM $
+		;Skip return, take it here
+.REPEAT 0 [;;;Sample code
+BLKI2:	D[MEM] DEST[MA] PUSHJ[IMP-DATAI-INTERNAL] NORM $
+		;Set MA for writing new data
+		;Fetch data to write
+	ALU[Q] DEST[MEMSTO] MEMST $
+		;Write data.  We're done
+];.REPEAT 0
+;------------------------------------------------------------------------------
+;BLKO1,BLKO2	Two parts of a BLKO instruction
+;------------------------------------------------------------------------------
+BLKO1:	D[MEM] DEST[Q AR] NORM $
+	D-AMEM[IMPA-HALF]  COND[-OBUS=0] JUMP[BLKO1A] C550 $
+		;Put IOWD pointer into Q to do incrementing
+		;Also, put a copy in AR for testing after fetch (page fault)
+		;Have we been here before? (If so, don't increment)
+	D[CONST 1,,1] ALU[D+Q] DEST[Q AR MEMSTO]
+			COND[-MA-AC] JUMP[BLKO1A] NORM $
+		;Increment both halves. (Note: overflow will from right half
+		;will be added to left half.  People who wrap around memory
+		;deserve what they get!)
+		;Also, put a copy in AR for testing after fetch (page fault)
+	ACSEL[MA] D[MEM] DEST[AC] CYLEN[MEMSTO] $
+		;Also write into AC
+BLKO1A:	ALU[-1] DEST[IMPA-HALF] DEST-A-MEM CYLEN[MEMSTO] $
+		;Finish previous write cycle (if not AC).  Note that we don't
+		;need a MAPF field because we've already (should have) done a
+		;FIXM2
+		;Set the First Part Done flag, in case we take a page trap.
+	D[MEM] DEST[MA] CYLEN[MEMSTO] $
+		;Set MA for reading new data
+	ACSEL[MA] ALU[AC] DEST[FIXMAC-MAPF-RD] MAPF[BYTE-ILD]  CYLEN[FIXM] $
+		;Finish reading and go off to output it.  This instruction can
+		;get a page fault.  If it does, the PC will be backed up and
+		;the HALF flag set, which will prevent an extra increment.  We
+	ALU[0] DEST[IMPA-HALF] DEST-A-MEM NORM POPJ $
+		;also clear it here if we don't page fault.
+.repeat 0 [;;;Only done in-line
+BLKO2:	D[AR] SPEC[LEFT] COND[OBUS=0] JUMP[MAIN] NORM $
+		;Check for skip.  If not, we're done
+	DOSKIP $		;Skip return
+];;;.repeat 0

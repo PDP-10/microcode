@@ -1,0 +1,375 @@
+VCDEB = 0	; Nonzero for debugging microcode
+
+VCBAD = MAIN
+
+; Versatec now has its own device code 520, with 524 reserved for a second VC.
+VCDSP:	
+:. + 20		;Reserve space for dispatch table
+;Let's save this for a second VC
+.REPEAT 10 [	ILGIOT $
+		NOP $
+];.REPEAT 10
+
+VCORG:		; Origin of Versatec code
+
+; Versatec driver definitions and register usage
+;
+; CONO - command out.  Takes (E) as
+;		Bits 0-15: Command to Versatec
+;		Bits 16-29: Unused
+;		Bit 30: Enable interrupt on READY
+;		Bits 31-32: Mode 00 - unused (same as mode 01)
+;				 01 - 7-bit bytes, 5 per word, left justified
+;				 10 - 8-bit bytes, 4 per word, left justified
+;				 11 - 8-bit bytes, 9 per two words
+;		Bits 33-35: PI channel
+;
+; CONI - status in.  Puts in E
+;		Bits 0-17: Zero, except
+;			3-4, 10-11: State of corresponding
+;					command out bits.
+;		Bits 18-23: Status bits from Versatec
+;		Bit 24: Reserved
+;		Bit 25: Versatec READY bit
+;		Bit 26: Data ready bit
+;		Bits 27-29: zero
+;		Bit 30: ENB-RDY-INT
+;		Bits 31-35: Mode and PI from last command out
+;
+; CONSZ, CONSO - Test right half of above CONI bits.
+;
+; DATAO - Start output.  Takes (E) as
+;		Bits 0-17: 2's complement byte count (0 means 256K bytes)
+;		Bits 18-35: Starting memory address
+;	This operation sets Busy, clears Done, and starts the output.
+;	When output finishes, Busy clears and Done sets.
+;
+; The following are debugging aids
+;
+; BLKI - Enters the interrupt routine.
+; DATAI - Returns the remaining byte count/MA.
+; BLKO - Unused.
+;
+; A-MEM Usage:	0 - Interrupt Dispatch
+;		1 - MA saved between bursts
+;		2 - byte count saved between bursts
+;		3 - Constants depending on Mode
+;			Bit 35: 0 for modes 1&2, 1 for mode 3
+;			Bits 32-34: Bytes/Word - 1
+;			Bits 25-31: Bytes/burst
+;		4 - Command/Status Register
+;		5 - Mask for command bits that are levels.
+;		6 - Saved AC during output burst
+;		7 - Saved PC during output burst
+;
+; Other registers:
+;		PC - Addresses memory during output
+;		AC - Counts bytes during output
+;		Loop Count - counts bytes in a word
+;		Q, AR, HOLD - temporary
+;
+: VCDSP + 0
+.REPEAT 1 - VCDEB [	; Make debugging ops illegal (NOP)
+.repeat 3 [	ILGIOT $ NOP $
+] ; .REPEAT 3
+] ; .REPEAT 1 - VCDEB
+
+.REPEAT VCDEB [		; BLKI - act like the Versatec interrupted
+
+	JUMP[.] NORM $
+	D[CONST VCDEV] DEST[DEV-ADR] JUMP[VCINT] NORM $
+]
+
+: VCORG + 2	; Dispatch base and interrupt entry
+
+; Dispatch for modes 1-3 relative to the vector (2 words/entry)
+;		Set burst count for the mode
+	D[CONST 17] ROT[6] DEST[Q] NORM $ ;Mode 1 - 60 bytes/burst, 5 bytes/word
+	D[CONST 10] ALU[DORQ] DEST[3] SPEC[DEST-A-MEM] JUMP[VCSET2] NORM $
+;
+	D[CONST 20] ROT[6] DEST[Q] NORM $ ;Mode 2 - 64 bytes/burst, 4 bytes/word
+	D[CONST 06] ALU[DORQ] DEST[3] SPEC[DEST-A-MEM] JUMP[VCSET2] NORM $
+;
+	D[CONST 17] ROT[6] DEST[Q] NORM $ ;Mode 3 - 63 bytes/burst, 4 bytes/word
+	D[CONST 67] ALU[DORQ] DEST[3] SPEC[DEST-A-MEM] JUMP[VCSET2] NORM $
+;
+VCINT:		;Interrupt routine
+
+: VCORG
+.REPEAT VCDEB [
+	JUMP[.] NORM $
+	JUMP[VCINT] NORM $
+: VCINT
+]
+	ALU[0] DEST[IOD] SPEC[IOB-OUT] NORM $ ;Disable interrupts
+	MAPF[4] CYLEN[IOB-OUT] SPEC[IOB-OUT]
+.REPEAT VCDEB [ $ ] 
+.REPEAT 1 - VCDEB [ JUMP[VCINT] $
+: VCINT
+]
+	MAPF[0] SPEC[IOB-OUT] CYLEN[IOB-OUT] $ ; Clear lat-byte bit
+	MAPF[5] CYLEN[IOB-OUT] ; Clear request
+		D[12] COND[-OBUS=0] JUMP[VCGO] $ ;Output if count/= 0
+
+	D[14] DEST[Q] NORM $ ; Fetch status register
+	D[14] ROT[30.] COND[OBUS<0] JUMP[VCINT2] C550 $
+
+; End of data transfer.  Set data ready bit.
+	D[CONST 1] ROT[9.] ALU[DORQ] DEST[4]
+		SPEC[DEST-A-MEM] JUMP[VCINT3] NORM $
+
+; READY interrupt.  Clear ready int enable bit.
+VCINT2:	D[CONST 1] ROT[5] ALU[-D&Q] DEST[4]
+		SPEC[DEST-A-MEM] NORM $
+ 
+VCINT3:	D[14] MASK[3] DEST[AR Q CLR-DEV-FROM-INTR]
+		COND[-OBUS=0] JUMP[PIGEN] C550 $ ; Macro int if enabled
+	JUMP[MAIN] NORM $
+
+;IOT dispatch
+	.PAIR
+	D[PC] ROT[6 + 1] MASK[1] COND[OBUS=0] JUMP[MUUO] $
+		;Trap if User and not IOT-USER
+VCIOT:	D[IR] ROT[12. + 1 + 1] MASK[4] DEST[Q] NORM $
+		;Extract IOT decode * 2.  Note we can do this because the
+		;machine has already done indexing/indirection and bits
+		;13:17 are guaranteed zero
+	D[10] ROT[18.] MASK[16.] ALU[D+Q] SDISP CYLEN[DISP] $
+		;Dispatch of type of IOT
+
+;
+; Command out to Versatec
+
+VCCMD:
+: VCDSP + 10 ; CONO dispatch
+.REPEAT VCDEB [
+	JUMP[.] NORM $
+	JUMP[VCCMD] NORM $
+: VCCMD
+]
+	D[CONST VCDEV] DEST[DEV-ADR] PUSHJ[VCONO] NORM $
+	JUMP[MAIN] $
+.REPEAT 1 - VCDEB [
+: VCCMD
+]
+; Reset.
+
+VCRST:	D[CONST 6] ROT[30.] DEST[Q] NORM $ ; mask for VC mode bits
+	D[CONST 3] ROT[24.] ALU[DORQ]
+		DEST[5] SPEC[DEST-A-MEM] NORM $
+
+	D[CONST VCDSP / 100] ROT[6 + 18.] DEST[Q] $	;Setup dispatch
+.IF VCDSP \ 100 /= 0 [
+	D[CONST VCDSP \ 100] ROT[18.] ALU[DORQ] DEST[Q] $
+]
+	D[CONST VCORG / 100] ROT[6] ALU[DORQ] DEST[0 Q] ;Interrupt base address
+		SPEC[DEST-A-MEM] NORM $
+.IF VCORG \ 100 /= 0 [
+	D[CONST VCORG \ 100] ALU[DORQ] DEST[0]
+		SPEC[DEST-A-MEM] NORM $
+]
+	D[CONST 10] DEST[HOLD] JUMP[VCONO0] NORM $ ; Invent CONO 124,[10]
+
+; CONO routine
+
+VCONO: FIXM1 $
+
+VCONO0:	SPEC[IOB-OUT]
+	D[MEM] ROT[31.] MASK[1] DEST[AR] NORM $ ; Save int-on-rdy bit
+
+	MAPF[0] SPEC[IOB-OUT] CYLEN[IOB-OUT] ; Clear the FIFO
+	D[MEM] DEST[IOD Q] $ ;Set up the control bits
+
+	MAPF[1] SPEC[IOB-OUT] LONG ;Output control bits
+	D[15] ALU[D&Q] DEST[IOD Q] $ ;Clear the ones that pulse.
+
+	MAPF[5] SPEC[IOB-OUT] LONG ; Clear int req
+	D[MEM] MASK[6] ALU[DORQ] DEST[Q] $ ; Save the mode
+
+	MAPF[1] SPEC[IOB-OUT] LONG ; Clear the pulsed bits
+	D[AR] ROT[2] DEST[IOD] $ ;Set up the int-on-rdy bit
+
+	MAPF[4] CYLEN[IOB-OUT] ; Set interrupt enablings
+	D[CONST 1] ROT[9.] ALU[DORQ] DEST[4] ;Set data ready bit
+		SPEC[DEST-A-MEM] $
+
+	D[MEM] ROT[33.] MASK[2] DEST[AR] ;Extract the mode
+		COND[OBUS=0] JUMP[VCONO1] C550 $
+	D[AR] ROT[1] DEST[Q] JUMP[VCONO2] NORM $ ; Double mode to Q
+
+VCONO1:	D[CONST 1] ROT[1] DEST[Q] NORM $ ;Change mode 0 to 1 and double
+
+VCONO2:	D[10] ALU[D+Q] SDISP C550 $ ;Set up constants by mode.
+;
+; Back from setup of constants.  Clear byte count.
+;
+VCSET2:	ALU[0] DEST[2] SPEC[DEST-A-MEM] JUMP[MAIN] $
+;
+; Read status/control bits
+
+VCSTAT:
+: VCDSP + 12 ; CONI dispatch
+
+.REPEAT VCDEB [
+	JUMP[.] NORM $
+	JUMP[VCSTAT] NORM $
+: VCSTAT
+]
+	D[CONST VCDEV] DEST[DEV-ADR] SPEC[IOB-IN] PUSHJ[VCGST] NORM $
+;		Fetch device status into AR.
+	D[AR] DEST[MEMSTO] MEMST $
+.REPEAT 1 - VCDEB [
+: VCSTAT
+]
+VCONSZ:
+: VCDSP + 14 ; CONSZ dispatch
+.REPEAT VCDEB [
+	JUMP[.] NORM $
+	JUMP[VCONSZ] NORM $
+: VCONSZ
+] ; VCDEB
+	D[CONST VCDEV] DEST[DEV-ADR] SPEC[IOB-IN] PUSHJ[VCGST] NORM $
+	D[IR] MASK[18.] DEST[Q] JUMP[CTYCZ] NORM $
+.REPEAT 1 - VCDEB [
+: VCONSZ
+]
+VCONSO:
+: VCDSP + 16 ; CONSO dispatch
+.REPEAT VCDEB [
+	JUMP[.] NORM $
+	JUMP[VCONSO] NORM $
+: VCONSO
+] ; VCDEB
+	D[CONST VCDEV] DEST[DEV-ADR] SPEC[IOB-IN] PUSHJ[VCGST] NORM $
+	D[IR] MASK[18.] DEST[Q] JUMP[CTYCS] NORM $
+.REPEAT 1 - VCDEB [
+: VCONSO
+]
+
+VCGST:	MAPF[2] D[IOD] ROT[8.] MASK[8.] DEST[AR] CYLEN[IOB-IN] $
+	D[AR] ROT[10.] DEST[Q] NORM $ ;Merge status with command.
+	D[14] ALU[DORQ] DEST[AR] POPJ NORM $
+;
+VCOUNT:
+.REPEAT VCDEB [		;BLKI - return byte count & MA.
+:VCDSP + 2
+	JUMP[.] $
+	D[CONST VCDEV] DEST[DEV-ADR] JUMP[VCOUNT] NORM $
+: VCOUNT
+	D[12] ROT[18.] MASK[0] SPEC[LEFT] DEST[Q] NORM $
+	D[11] MASK[18.] ALU[DORQ] DEST[MEMSTO] MEMST $
+]
+VCOUT:
+: VCDSP + 6 ; DATAO dispatch
+
+.REPEAT VCDEB [
+	JUMP[.] NORM $
+	JUMP[VCOUT] NORM $
+: VCOUT
+	FIXM1 $
+	D[CONST VCDEV] DEST[DEV-ADR] NORM $
+]
+.REPEAT 1 - VCDEB [
+	FIXM1 $
+	D[CONST VCDEV] DEST[DEV-ADR] JUMP[VCOUT] NORM $
+: VCOUT
+]
+;		Illegal op if BUSY is on.
+	D[14] ROT[27.] MASK[1] COND[OBUS=0] JUMP[VCBAD] CYLEN[C550] $
+	D[14] DEST[Q] NORM $
+	D[CONST 1] ROT[9.] ALU[-D&Q] DEST[4] SPEC[DEST-A-MEM] NORM $ ; Clear DONE
+	D[MASK 0] SPEC[LEFT] DEST[Q] NORM $ ;Pad byte count with ones in left.
+	D[MEM] ROT[18.] MASK[18.] ALU[DORQ] DEST[2] SPEC[DEST-A-MEM] NORM $
+	D[MEM] MASK[18.] DEST[1] SPEC[DEST-A-MEM] NORM $
+;
+VCGO:		;Q gets 0 for 7-bit bytes, 1 for 8-bit.
+  .REPEAT NEWMAP [
+	ALU[-1] DEST[MAP-DISABLE] NORM $
+	  ;Disable mapping.
+	   ]
+  .REPEAT 1 - NEWMAP [
+	DEST[CLR-DEV-FROM-INTR] SHORT $
+	START-IN D[CONST 1] DEST[DEV-ADR] PUSHJ[MAPOFF] $
+	MAPF[10] D[CONST VCDEV] DEST[DEV-ADR] C800 $
+         ]
+	D[14] ROT[32.] MASK[1] DEST[Q] NORM $
+	D[CONST 7] ALU[D+Q] DEST[ROTR] NORM $ ;byte length to rotate and
+	D[CONST 7] ALU[D+Q] DEST[MASKR] NORM $ ;mask registers.
+	D[CONST 0] DEST[Q] NORM $ ;Q contains last-byte flag, initially 0.
+	ALU[AC] DEST[6] SPEC[DEST-A-MEM] NORM $ ;Save AC and PC for scratching.
+	D[PC] DEST[7] SPEC[DEST-A-MEM] NORM $
+	D[11] DEST[PC] NORM $ ;PC gets current MA.
+	D[12] DEST[AC] NORM $ ;AC gets (negative) byte count.
+	D[13] ROT[32.] MASK[7] ALU[D+AC] DEST[AC] NORM $ ;Add burst count,
+	ALU[AC] DEST[2] SPEC[DEST-A-MEM]
+		COND[OBUS<0] JUMP[VCBRST] CYLEN[C550] $ ;check for overflow.
+	D[13] ROT[32.] MASK[7] ALU[AC-D] DEST[AC] NORM $
+;		Ov.  AC gets bytes remaining.
+	D[CONST 0] DEST[2] SPEC[DEST-A-MEM] JUMP[VCLP] NORM $ ;Clear byte count.
+
+VCBRST:	D[13] ROT[32.] MASK[7] ALU[0-D] DEST[AC] NORM $ ;No. ov.  AC_ burst ct.
+
+VCLP:	PUSHJ[VCWRD] NORM $ ;Output a word.  If mode 1 or 2 and not last byte,
+;		loop on these two instructions.
+	MAPF[3] D[13] MASK[1] ALU[DORQ] COND[OBUS=0] JUMP[VCLP]
+		LONG $
+;		go to VCDONE if last byte.
+	ALU[Q] COND[-OBUS=0] JUMP[VCDONE] CYLEN[C550] $
+;
+;		Mode 3.  Pull high 4 bits of the odd byte.
+	D[MEM] ROT[4] MASK[4] DEST[HOLD] NORM $
+;		Shift them to proper place in Q and fetch next word.
+	SPEC[MA_PC] D[MEM] ROT[4] DEST[MA Q] NORM $
+	FIXM1 $
+	D[MEM] ROT[4] DEST[HOLD] NORM $ ;Low bits of odd byte to low end.
+;		Check whether this is the last byte of the burst.
+	ALU[AC+1] DEST[AC] COND[-OBUS<0] JUMP[VCLST] CYLEN[C550] $
+;		No.  Put it out.
+	SPEC[IOB-OUT] D[MEM] MASK[4] ALU[DORQ] DEST[IOD] NORM $
+;		Set up byte count for second word.
+	MAPF[3] D[13] ROT[35.] MASK[3] LLOAD CYLEN[IOB-OUT] $
+;		Clear last-byte flag, put out second word.
+	D[CONST 0] DEST[Q] PUSHJ[VCWRD1] NORM $
+;		Loop for next double word if not end of burst.
+	MAPF[3] ALU[Q] COND[OBUS=0] JUMP[VCLP] LONG $
+;		End of burst.  Save updated MA and restore AC and PC.
+VCDONE:	MAPF[3] D[PC] DEST[1] SPEC[DEST-A-MEM] NORM $
+	SPEC[IOB-OUT] D[CONST 10] DEST[IOD] NORM $ ;Enable interrupt
+	MAPF[4]D[17] DEST[PC] CYLEN[IOB-OUT] $
+  .REPEAT NEWMAP [
+	ALU[0] DEST[MAP-DISABLE] NORM $
+	  ;Enable mapping.
+         ]
+  .REPEAT 1 - NEWMAP [
+	D[IR] MASK[3] DEST[IOD] NORM $
+	ALU[0] DEST[DEV-ADR] SPEC[IOB-OUT] NORM $
+	MAPF[10] D[CONST VCDEV] DEST[DEV-ADR] C800 $
+         ]
+	D[16] DEST[CLR-DEV-FROM-INTR AC] JUMP[MAIN] NORM $
+;		Odd byte is the last.  Put it out with the last-byte bit on.
+VCLST:	D[CONST 1] ROT[34.] ALU[DORQ] DEST Q NORM $
+	SPEC[IOB-OUT] D[MEM] MASK[4] ALU[DORQ] DEST[IOD] JUMP[VCDONE] NORM $
+
+; Subroutine to output one word.  Instruction following call must have
+; MAPF[3] CYLEN[IOB-OUT].
+;
+;		Entry for modes 1 and 2, and first word of a pair for
+;		mode 3.  Set loop count to bytes/word.
+VCWRD:	SPEC[MA_PC] DEST[MA] D[13] ROT[35.] MASK[3] LLOAD NORM $
+	FIXM1 $
+;		Second entry for other word in mode 3 (it's been fetched).
+;		Add bytes/word to bytes remaining.
+VCWRD1:	SPEC[PC+1] D[13] ROT[35.] MASK[3] ALU[D+AC] CARRY DEST[AC]
+		COND[OBUS<0] JUMP[VCOUT1] CYLEN[C550] $
+;		Overflow.  Change loop count to bytes remaining.
+	D[13] ROT[35.] MASK[3] ALU[D-AC] DEST[AC] LLOAD NORM $
+;		Set last-byte flag in Q.
+	D[CONST 1] ROT[34.] DEST[Q] JUMP[VCOUT1] NORM $
+;		This two-instruction loop puts out all but the last byte.
+VCOLP:	D[MEM] MASK[R] DEST[IOD] PUSHJ[VCODLY] LONG $
+VCOUT1:	MAPF[3] D[MEM] ROT[R] DEST[HOLD] LOOP[VCOLP] LONG $
+;		Last byte here, with the flag bit set if end of burst.
+	D[MEM] MASK[R] ALU[DORQ] DEST[IOD] LONG $
+VCODLY:	NOP LONG $
+	SPEC[IOB-OUT] POPJ LONG $
+

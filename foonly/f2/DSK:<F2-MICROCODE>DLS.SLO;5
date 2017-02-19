@@ -1,0 +1,408 @@
+;#####################################################################
+;   Let's make the dls be macro device 370;  so the
+;   iot's will have opcode 737, dispatch table
+;   entry loc. 3676
+;#########################################################################
+
+;-----------------------------------------------------------------------
+;DLS definitions
+;-----------------------------------------------------------------------
+DLS = 37	;MACRODEVICE CODE 370
+DLSORG = .  ;; DWP 1/27/80 %%% DLSORG = 7000	;UCODE ORIGIN
+DLSVECTOR = 2137	;Interrupt dispatch address
+
+.REPEAT DLS2 [DLSWEBIT = 16.	;ASTRO write enable bit
+DLSNLINES = 37	;Highest line number
+DLSLNSIZE = 5	;Number of bits in line-number field
+.DEFINE DLSIRQ [] [ROT[9.] COND[-OBUS<0]]
+.DEFINE DLSNOIRQ [] [ROT[9.] COND[OBUS<0]]]
+.REPEAT 1 - DLS2 [DLSWEBIT = 10.
+DLSNLINES = 17
+DLSLNSIZE = 4
+.DEFINE DLSIRQ [] [ROT[9.] COND[OBUS<0]]
+.DEFINE DLSNOIRQ [] [ROT[9.] COND[-OBUS<0]]]
+
+;
+;A-MEM definitions
+;
+DLSINTAD = 0	;Interrupt service routine
+DLSPICHN = 1	;PI channel for DLS
+DLSLINE = 2	;Line number which the scanner is simulated to have
+		;stopped on
+DLSACT = 3	;Active line flags
+		;   DLSCNI1
+DLSTMP = 4	;SCRATCH
+;
+;MAPF fields (IO SUBSEL)
+;
+DLSCR1 = 0	;ASTRA CR1 (Control Register 1)
+;		Async			Sync
+;	Bit 28		Normal mode (NOT looped)
+;	Bit 29	Send break		Xmit transparent
+;	Bit 30	Single stop bit		Transmit parity
+;		  if xmit enabled	  if bit 29 is zero
+;	  else	Not MISC OUT = 0	Force DLE
+;	Bit 31	Auto-echo (1/2 duplex)	Not MISC OUT = 0 (bit 29=0)
+;					DLE stripping (bit 29=1)
+;	Bit 32	Parity enable		Recieve parity enable
+;	Bit 33		Reciever enabled
+;	Bit 34		not RTS OUT = 0
+;	Bit 35		not DTR OUT = 0
+;
+DLSCR2 = 1	;ASTRA CR2 (Control Register 2)
+;   Bits 28:29		Character length
+;		00  8 bits	10  6 Bits
+;		01  7 bits	11  5 Bits
+;	Bit 30	0  Asynchronous		1  Synchronous
+;	Bit 31	0  Odd parity		1  Even parity
+;	Bit 32	Rcv clk = xmt clk	SYN strip (CR1 bit 29=0)
+;		else Rcv clk = Rate 1	DEL-SYN strip (CR1 bit 29=1)
+;   Bits 33:35	Transmit clock select
+;	000	Ext. clock (EIA pins:  Xmt=15, Rcv=17 [???])
+;	001	Rate 1		150 baud
+;	010	Rate 2		300 baud
+;	011	Rate 3		109.9 baud	*** 1200 baud Temp.
+;	100	Rate 4		9600 baud
+;	101	Rate 4 / 2	4800 baud
+;	110	Rate 4 / 4	2400 baud
+;	111	Rate 4 / 8	1200 baud
+;
+DLSSTAT = 2	;ASTRA Status register
+;	Bit 28	Data Set Change (DSR or CD changed while DTR=1, or RI
+;		  changed while DTR=0)
+;	Bit 29	DSR (Data Set Ready)
+;	Bit 30	CD (Carrier Detect)
+;	Bit 31	Framing error or SYN detect
+;	Bit 32	Parity error [Async, too???] or DLE detect
+;	Bit 33	Overrun error
+;	Bit 34	Data recieved
+;	Bit 35	Transmit holding register empty  (Note: this does NOT
+;		  necessarily mean the transmitter is off)
+;On write, this sets the SYN register, and if immediately followed by
+;another write, that write sets the DLE register.
+DLSHOLD = 3	;ASTRA xmt/rcv Hold register
+DLSCSR = 10	;Interface Command/Status Register
+DLSIACK = 4	;Interrupt acknowledge (also, interrupting line)
+DLSNOSEL = 14	;Don't select anything
+
+;Macros for reading ASTRA registers.  They are macros because the
+;control logic on the prototype didn't have the timing correct for the
+;ASTRA and the problem was pushed onto the microcode.
+
+.DEFINE DLSREAD[ XXX DST WID ]
+[	D[CONST 1] ROT[26.] ALU[DORQ] DEST[Q IOD] $
+		;Set TTY number  -- FBUS 9
+	D[CONST 1] ROT[20.] ALU[DORQ] DEST[Q IOD] SPEC[IOB-OUT] $
+		;Assert CS
+	MAPF[XXX] CYLEN[IOB-OUT] $ ;TIME FOR CHIP TO SELECT
+	MAPF[XXX] D[CONST 1] ROT[26.] DEST[Q IOD] SPEC[IOB-IN] $
+		;Setup to drop CS, start read
+	MAPF[XXX + DLSNOSEL] D[IOD] MASK[WID] ALU[D] DEST[DST] SPEC[IOB-OUT] $
+		;Finish read, drop CS
+	MAPF[XXX + DLSNOSEL] $
+	MAPF[XXX + DLSNOSEL]  ];.DEFINE
+
+.DEFINE DLSWRITE[ XXX ]
+[	D[CONST 1] ROT[26.] ALU[DORQ] DEST[Q] $
+		;Set TTY number
+	D[CONST 1] ROT[20.] ALU[DORQ] DEST[IOD] SPEC[IOB-OUT] $
+		;SET CS
+	MAPF[XXX] D[CONST 1] ROT[35. - DLSWEBIT] ALU[DORQ] DEST[IOD] SPEC[IOB-OUT] $
+		;DROP CS, SET WE
+	MAPF[XXX] ALU[Q] DEST[IOD] SPEC[IOB-OUT] $
+		;DROP WE.
+	MAPF[XXX + DLSNOSEL] SPEC[IOB-OUT] $
+	MAPF[XXX + DLSNOSEL] 		;Finish the last IOB-OUT
+];DEFINE DLSWRITE
+
+.DEFINE DLSRINT[] [
+	MAPF[DLSNOSEL] SPEC[IOB-OUT]
+		ALU[Q+1] DEST[IOD] NORM $
+	MAPF[DLSIACK] CYLEN[IOB-OUT] SPEC[IOB-OUT] 
+		D[CONST 1] ROT[20.] ALU[D+Q+1] DEST[IOD] $
+	MAPF[DLSIACK] SPEC[IOB-OUT] ALU[Q] DEST[IOD] LONG $
+	MAPF[DLSIACK] SPEC[IOB-IN] LONG $
+	MAPF[DLSIACK] D[IOD] DEST[DLSTMP] DEST-A-MEM C800 $
+	D[10 + DLSTMP] ];DEFINE DLSRINT
+;-----------------------------------------------------------------------
+; DLS Dispatch
+;-----------------------------------------------------------------------
+DLSDISP = 3600 + DLS + DLS	;Dispatch for DLS instructions
+:DLSDISP
+	D[CONST DLSDEV] DEST[DEV-ADR] JUMP[. + 1] NORM $
+	D[CONST DLSORG / 100] ROT[6] DEST[Q] JUMP[DLSIOT] NORM $
+:DLSORG		;DISPATCH ON DLS IOT CODES
+
+DLSDISP2:
+.REPEAT DLSDEB [
+:DLSDISP2 + 40
+]
+.REPEAT 1 - DLSDEB [
+:DLSDISP2 + 20	;Space will be used as needed for first DLS
+;Other half is unused.  It would be a second DLS
+.REPEAT 10 [
+	ILGIOT $
+	NOP $
+];REPEAT
+];DLSDEB
+
+DLSLOW = DLSORG \ 100
+DLSIOT:
+	.IF DLSLOW /= 0 [
+		D[CONST DLSLOW] ALU[DORQ] DEST[Q] NORM $]
+	D[IR] ROT[13.] MASK[4] ALU[D+Q] DEST[Q] NORM $
+	D[IR] ROT[13.] MASK[4] ALU[D+Q] SDISP CYLEN[C550] $
+;-----------------------------------------------------------------------
+;BLKI DLS,
+DLSBLKI:
+.REPEAT 1 - DLSDEB [
+:DLSDISP2 + 0
+	;Unimplemented
+	ILGIOT $
+	NOP $
+:DLSBLKI
+];DLSDEB
+;-----------------------------------------------------------------------
+;DATAI DLS,
+;
+;	Bit 12	This is a modem control line
+;   Bits 13:17	Line number
+;	Bit 27	Interrupt from reciever (always true for modem control)
+;   Bits 28:35	Character (Note: 5 bit characters do NOT use bit 27 for
+;			   flag.  Use TRNN x,777 to test for rcv. int.)
+;Modem control use of bits 28:35
+;	Bit 28	Unused
+;	Bit 29	DTR (Data Terminal Ready)
+;   Bits 30:32	ACU bits (unimplemented - no auto-dialer)
+;	Bit 33	CD (Carrier Detect)
+;	Bit 34	RI (Ring Indicator)
+;	Bit 35	Unused
+;
+;-----------------------------------------------------------------------
+DLSDI1:	;Prepare to insert into dispatch table
+:DLSDISP2 + 2		;Two instructions here and the rest elsewhere
+	ASRC[DLSLINE] DEST[AR Q] JUMP[. + 1] NORM $
+	D[CONST 1] ROT[8.] ALU[-D&Q] ADEST[DLSLINE] JUMP[DLSDI1] NORM $
+:DLSDI1
+	D[CONST 1] ROT[8.] ALU[D&Q] COND[OBUS=0] JUMP[DLSDI2] C550 $
+		;Did scanner stop on a receiver?
+	D[CONST 1] ROT[27.] DEST[IOD] SPEC[IOB-OUT] NORM $
+		;Yes.  Enable interrupt
+	MAPF[DLSCSR] CYLEN[IOB-OUT] ASRC[DLSPICHN] DEST[Q] $
+		;Clear RCVR flag.
+	D[CONST 1] ROT[3] ALU[-D&Q] ADEST[DLSPICHN] NORM $
+DLSDI2:	D[AR] DEST[MEMSTO] MEMST $
+
+;-----------------------------------------------------------------------
+;BLKO DLS,
+DLSBLKO:
+.REPEAT 1 - DLSDEB [
+:DLSDISP2 + 4
+		;Unimplemented
+	ILGIOT $
+	NOP $
+:DLSBLKO
+];DLSDEB
+;-----------------------------------------------------------------------
+;DATAO DLS,
+;
+;	Bit 11	Use this line
+;   Bits 12:17	Line number if bit 11 is on (else interrupting line)
+;	Bit 27	Turn off transmitter (if this bit is on, then scanner is
+;		  restarted, but termination of transmission is not
+;		  implemented.)  Note: bit 30 is NOT used as alternative
+;		  to bit 27 in 5-bit character mode.)
+;Modem Control usage for bits 27:35
+;	Bit 27	Unused
+;	Bit 28	Set Status Flag (request interrupt).  Not implemented;
+;		   causes bug trap.
+;	Bit 29	DTR (Data Terminal Ready)
+;   Bits 30:35	ACU bits (Not implemented - no auto-dialer)
+;DC10 escape - Bit 0 = 1
+;   Bits 20:27	ASTRA Control Register 1
+;   Bits 28:31	ASTRA Control Register 2
+;
+;-----------------------------------------------------------------------
+DLSDO1:	;Prepare to insert into dispatch table
+:DLSDISP2 + 6		;Two instructions here and the rest elsewhere
+	  FIXM1 $	;Fetch operand
+	JUMP[DLSDO1] $
+:DLSDO1
+	D[MEM] ROT[11.] COND[-OBUS<0] JUMP[DLSNTHIS] C550 $
+		;Is "use this line" on?
+	ASRC[DLSPICHN] ROT[31.] COND[-OBUS<0] JUMP[DLSTHIS] C550 $
+		;Yes.  Use it if scanner not stopped on xmitter.
+	D[MEM] ROT[18.] MASK[DLSLNSIZE] DEST[Q] NORM $
+		;It has stopped...
+	ASRC[DLSLINE] ROT[18.] MASK[DLSLNSIZE] ALU[D#Q] COND[OBUS=0] JUMP[DLSSCNR] C550 $
+		;If it stopped on the line to use, ignore the "use this"
+DLSTHIS:	D[MEM] ROT[18.] MASK[DLSLNSIZE] DEST[AR Q] JUMP[DLSOUT] NORM $
+		;Set line # from data.
+DLSNTHIS:	ASRC[DLSPICHN] ROT[31.] COND[-OBUS<0] JUMP[MAIN] C550 $
+		;No "use this" - NOP if scanner not stopped.
+DLSSCNR:	ASRC[DLSPICHN] MASK[3] DEST[Q] NORM $
+	D[CONST 4] ROT[3] ALU[DORQ] ADEST[DLSPICHN] NORM $
+		;Clear XMIT flag.
+	D[CONST 1] ROT[27.] DEST[IOD] SPEC[IOB-OUT] NORM $
+		;Enable interrupt.
+	MAPF[DLSCSR] CYLEN[IOB-OUT] ASRC[DLSLINE] ROT[18.] MASK[DLSLNSIZE] DEST[AR Q] $
+		;Use line # from scanner.
+DLSOUT:	D[CONST 35.] ALU[D-Q] DEST[ROTR] NORM $
+	ASRC[DLSACT] DEST[Q] NORM $	;Prepare to twiddle active bit
+	D[MEM] ROT[27.] COND[OBUS<0] JUMP[DLSOFF] C550 $
+		;"turn off transmitter"?
+	D[CONST 1] ROT[R] ALU[DORQ] ADEST[DLSACT] NORM $
+		;No.  Turn it on.
+	D[MEM] MASK[8] DEST[Q] NORM $
+	D[AR] ROT[21.] ALU[DORQ] DEST[Q] NORM $
+	DLSWRITE[DLSHOLD] JUMP[MAIN] NORM $
+DLSOFF:	D[CONST 1] ROT[R] ALU[-D&Q] ADEST[DLSACT] JUMP[MAIN] NORM $
+;-----------------------------------------------------------------------
+;CONO DLS,
+
+;
+;	Bit 30	Clear DC10
+;	Bit 31	Ready Hold (Not implemented, DTR switch is simulated as
+;			being on.)
+;	Bit 32	Reset Scanner (more accurately, restart scanner. Allows
+;			 interrupts)
+;   Bits 33:35	PI channel
+;
+;-----------------------------------------------------------------------
+DLSCNO1:
+:DLSDISP2 + 10
+	D[IR] ROT[30.] COND[OBUS<0] PUSHJ[DLSRST] C550 $
+	D[CONST 70] DEST[Q] JUMP[DLSCNO1] NORM $
+:DLSCNO1
+	ASRC[DLSPICHN] ALU[D&Q] DEST[Q] NORM $
+	D[IR] MASK[3] ALU[DORQ] ADEST[DLSPICHN] JUMP[MAIN] NORM $
+;-----------------------------------------------------------------------
+;CONI DLS,
+;
+;    Bits 0:7	ASTRA Control Register 1
+;    Bits 8:13	ASTRA Control Register 2
+;    Bits 14:20	ASTRA Status Register
+;	Bit 30	DTR Distend (Simulated as always on)
+;	Bit 31	Transmit interrupt
+;	Bit 32	Recieve interrupt
+;		(Both bits 31 and 32 will not be on at the same time.
+;		 Recieve will take priority.)
+;   Bits 33:35	PI channel
+;
+;-----------------------------------------------------------------------
+DLSCNISV:
+:DLSDISP2 + 12
+		;Get CONI information
+	ASRC[DLSPICHN] DEST[MEMSTO] MEMST $
+	NOP $
+		;Store and fetch next instruction
+;-----------------------------------------------------------------------
+;CONSZ DLS,
+;-----------------------------------------------------------------------
+	ASRC[DLSPICHN] DEST[AR] NORM $
+	D[IR] MASK[18.] DEST[Q] JUMP[CTYCZ] NORM $
+		;Do standard skip off AR and IR
+;-----------------------------------------------------------------------
+;CONSO DLS,
+;-----------------------------------------------------------------------
+	ASRC[DLSPICHN] DEST[AR] NORM $
+	D[IR] MASK[18.] DEST[Q] JUMP[CTYCS] NORM $
+		;Do standard skip off AR and IR
+:DLSCNISV
+
+DLSBAD:	d[pc] alu[d-1] dest[pc] jump[dohalt] $
+		;Halt macro machine on this lossage...
+;-----------------------------------------------------------------------
+;Reset DLS
+;
+;Clear PI assignment and A-MEM registers.
+;Turn off interrupts
+;Setup defaults for lines 0:7, 8:5
+;
+;-----------------------------------------------------------------------
+.DEFINE DLSGRP[L0 L1 CR1 CR2] [
+	D[CONST L1 - L0] LLOAD $
+	D[CONST CR2] DEST[Q] PUSHJ[DLSSCR2] NORM $
+	D[CONST CR1 / 100] ROT[6] DEST[Q] NORM $
+	D[CONST CR1 & 77] ALU[DORQ] DEST[Q] PUSHJ[DLSSCR1] NORM $
+	D[AR] ALU[D+1] DEST[AR] LOOP[. - 3] NORM $
+] ;DLSGRP
+DLSRST:
+	D[CONST 1] ROT[24.] DEST[IOD] SPEC[IOB-OUT] NORM $
+		;Hit MASTER RESET on all ASTRAs
+	MAPF[DLSCSR] LONG D[CONST 40] ADEST[DLSPICHN] $ ;Clear PIA
+	ALU[0] ADEST[DLSLINE] LONG $ ;Clear receiver flag
+	ALU[0] ADEST[DLSACT] LONG $ ;All transmitters off
+	ALU[0] DEST[IOD AR] SPEC[IOB-OUT] LONG $ ;Let go of MR
+	MAPF[DLSCSR] LONG
+DLSINI
+	D[CONST 0] DEST[Q] PUSHJ[DLSCINT] NORM $
+.REPEAT DLS2 [
+	D[CONST 20] ROT[21.] DEST[Q] PUSHJ[DLSCINT] NORM $
+] ;DLS2
+	D[CONST 1] ROT[27.] DEST[IOD] SPEC[IOB-OUT] NORM $
+	MAPF[DLSCSR] CYLEN[IOB-OUT] POPJ $
+DLSCINT:
+.REPEAT DLS2 [
+	D[CONST 1] ROT[26.] ALU[DORQ] DEST[IOD Q] SPEC[IOB-OUT]
+			NORM $
+	MAPF[DLSNOSEL] SPEC[IOB-IN] CYLEN[IOB-OUT] $
+	MAPF[DLSNOSEL] D[IOD] DEST[DLSTMP] DEST-A-MEM $
+	D[10 + DLSTMP] DLSNOIRQ POPJ LONG $
+] ;DLS2
+DLSCINT1:	DLSRINT DLSNOIRQ POPJ $
+	NOP LONG $
+	JUMP[DLSCINT1] $
+DLSSCR1:	D[AR] ROT[21.] ALU[DORQ] DEST[Q] NORM $
+	DLSWRITE[DLSCR1] POPJ NORM $
+DLSSCR2:	D[AR] ROT[21.] ALU[DORQ] DEST[Q] NORM $
+	DLSWRITE[DLSCR2] POPJ NORM $
+
+;-----------------------------------------------------------------------
+;DLS interrupts are fairly straight-forward.  The micro-interrrupt
+;is turned off, the status of the line is obtained, and if enabled, a
+;macro interrupt is requested.  The macro interrupt is responsible for
+;executing some CONO,DATAI,DATAO which restarts the scanner by enabling
+;micro interrupts again.
+;-----------------------------------------------------------------------
+DLSINT:
+: DLSVECTOR	;Entry to interrupt
+	ALU[0] DEST[IOD] SPEC[IOB-OUT] JUMP[DLSINT] NORM $ ;Disable int.
+: DLSINT
+.REPEAT DLS2 [
+	MAPF[DLSCSR] D[CONST 3] ROT[25.] DEST[Q IOD] SPEC[IOB-OUT]
+			CYLEN[IOB-OUT] $
+	MAPF[DLSNOSEL] SPEC[IOB-IN] CYLEN[IOB-OUT] $
+	MAPF[DLSNOSEL] D[IOD] DEST[DLSTMP] DEST-A-MEM C800 $
+	D[10 + DLSTMP] DLSIRQ JUMP[DLSINT1] $
+	D[CONST 2] ROT[25.] DEST[Q IOD] SPEC[IOB-OUT] NORM $
+	MAPF[DLSNOSEL] SPEC[IOB-IN] CYLEN[IOB-OUT] $
+	MAPF[DLSNOSEL] D[IOD] DEST[DLSTMP] DEST-A-MEM C800 $
+	D[10 + DLSTMP] C550 DLSNOIRQ JUMP[DLSIGNORE] $
+] ;DLS2
+DLSINT1:	DLSRINT DEST[HOLD] $
+.REPEAT 1 - DLS2 [
+	D[MEM] DLSNOIRQ JUMP[DLSIGNORE] C550 $
+]
+	D[MEM] ROT[33.] MASK[4] DEST[AR] NORM $
+	D[AR] ROT[21.] ALU[DORQ] DEST[AR] NORM $
+	D[AR] ROT[15.] MASK[DLSLNSIZE] DEST[AR ROTR] NORM $
+	D[AR] ROT[18.] DEST[AR] NORM $
+	D[MEM] ROT[33.] COND[OBUS<0] JUMP[DLSRCVINT] C550 $
+	ASRC[DLSACT] ROT[R] COND[-OBUS<0] JUMP[DLSIGNORE] C550 $
+	D[AR] ADEST[DLSLINE] NORM $
+	ASRC[DLSPICHN] DEST[AR Q] COND[OBUS=0] JUMP[DLSCH0] NORM $
+	D[CONST 6] ROT[3] ALU[DORQ] ADEST[DLSPICHN] JUMP[PIGEN] NORM $
+DLSCH0:	D[CONST 6] ROT[3] ALU[DORQ] ADEST[DLSPICHN] JUMP[MAIN] NORM $
+DLSRCVINT:	D[AR] ROT[3] DEST[Q] NORM $
+	DLSREAD[DLSSTAT HOLD 8.] D[MEM] ROT[34.]
+		COND[-OBUS<0] JUMP[DLSIGNORE] C550 $
+	D[AR] ROT[3] DEST[Q] NORM $
+	DLSREAD[DLSHOLD Q 8.] D[AR] ROT[28.] ALU[D+1] DEST[HOLD] NORM $
+	D[MEM] ROT[8.] ALU[DORQ] ADEST[DLSLINE] NORM $
+	ASRC[DLSPICHN] MASK[3] DEST[AR Q] COND[OBUS=0] JUMP[DLSRCVIGN] NORM $
+	D[CONST 5] ROT[3] ALU[DORQ] ADEST[DLSPICHN] JUMP[PIGEN] NORM $
+DLSRCVIGN:	D[CONST 5] ROT[3] ALU[DORQ] ADEST[DLSPICHN] JUMP[MAIN] NORM $
+DLSIGNORE:	D[CONST 1] ROT[27.] DEST[IOD] SPEC[IOB-OUT] NORM $
+	MAPF[DLSCSR] CYLEN[IOB-OUT] ALU[0] DEST[AR Q] JUMP[MAIN] $
+

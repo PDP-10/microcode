@@ -1,0 +1,76 @@
+;F2 with 8K micro-memory
+
+;Initialize switch settings
+.INSERT SWINIT.SLO
+
+; F2 VERSION OF MICROCODE
+
+; SET F2SW = 1 FOR F2,  F2SW = 0 FOR F3
+
+F2SW = 1
+
+XUCODE = 1	;8K u-mem present
+
+NEWMAP = 1
+
+TIMER = 1
+
+TYMNET = 1	;For F5 diagnostics
+
+;;;IMP = 1
+
+DLSDEV = 20	; udevice code for TTY scanner
+
+DLS = 1
+
+DLSDEB = 1
+
+DLS2 = 1
+
+NTP = 1
+
+TAPE = 1	; New tape code
+75IPS = 1 ;75 IPS TAPE SPEED -- USED FOR READING OLD CCRMA TAPES.
+
+VID = 1		; FooVision video
+VIC2 = 0	; No smart video control (with synthesis)
+DPYDEV = 36
+DPYDEV2 = 2
+
+;;VC = 1		; Set to 1 for Versatec
+VCDEV = 14	; udevice code for Versatec
+;-----------------------------------------------------------------------
+;Default DLS configuration.  Lines are reset to this on initialization.
+;See DLS definition page for meaning of this bits.
+
+;Caution:  Only lower 6 bits are permissible here.  This means you
+;	   can't start out with looped, in break mode, or with character
+;	   length other than 8.  You must use macro code to set those.
+;
+;-----------------------------------------------------------------------
+;The following comments are bogus -- Moon
+;
+;Three groups of
+;lines may be initialized, allowing for local terminal, 300 buad modems
+;and split speed modems.
+;Note:  Groups can be omitted by setting DLSGRPxN to zero.
+;-----------------------------------------------------------------------
+.DEFINE DLSINI [] [
+DLSGRP[0 0 247 32]	;Line 0 300 baud
+DLSGRP[1 3 247 23]	;Lines 1-3 150/1200	*** Temp.
+DLSGRP[4 DLSNLINES 247 34]	;Lines 4-LAST 9600
+] ;DLSINI
+
+.DEFINE DLIST [] [LIST]	;Define as LIST to enable FOOLIST
+.DEFINE DXLIST [] [XLIST]	;Define as XLIST for FOOLIST stuff
+
+XLIST
+
+.INSERT CFDEF.SLO
+
+LIST
+
+.INSERT CFNEW
+
+LIST-LABELS
+LIST-CORMAP

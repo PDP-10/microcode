@@ -1,0 +1,15 @@
+
+
+;MEMTST  Memory diagnostic
+;128k, new tape ctrl version
+
+NMEMS = 1	;Test only 128k words.
+
+XLIST
+.INSERT SWINIT
+.INSERT CFDEF.SLO	; get machine definition
+LIST
+
+NTP = 1  ;NEW TAPE CONTROLLER
+
+.INSERT MEMTST

@@ -1,0 +1,38 @@
+;microcrox for SCI system
+
+;Initialize switch settings
+.INSERT SWINIT.SLO
+
+; SET F2SW = 1 FOR F2,  F2SW = 0 FOR F3
+
+XUCODE = 1
+
+F2SW = 1
+
+NEWMAP = 0
+
+TLXTAPE = 0		;Down: THIS IMPLIES TELEX TAPE CTRLR
+
+NTP = 1
+TAPE = 1
+
+DLS = 1			;Set to 1 to include DLS
+DLSDEB = 1		;Set to 1 for debugging
+DLS2 = 1
+DLSDEV = 20
+
+IMP = 1			;Set to 1 to include IMP
+
+VC = 1
+ VCDEV = 14
+
+XLIST
+
+.INSERT CFDEF.SLO
+
+LIST
+
+.INSERT CFNEW
+
+LIST-LABELS
+LIST-CORMAP

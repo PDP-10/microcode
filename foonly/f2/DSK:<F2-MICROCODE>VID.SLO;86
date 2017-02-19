@@ -1,0 +1,2098 @@
+COMMENT \		VID.SLO
+
+This is the microcode for vector display i/o.
+There are two basic macro instructions:
+	VIDIN AC,E:	770000,,0
+			input from VID with i/o sub sel = ac
+			to contents of effective address.
+	VIDOUT AC,E:	771000,,0
+			output from contents of effective address
+			to VID with i/o sub sel = ac
+
+These get dispatched to by 700 series iots
+(although the format is more like a non-iot instruction.)
+
+;OPDEF's for FooVision:
+OPDEF	VIDIN	[770000,,0]	;In to CPU from FooVision (AC=MAPF)
+OPDEF	VIDOUT	[771000,,0]	;Out from CPU to FooVision (AC=MAPF)
+OPDEF	VLDDAT	[VIDOUT 1,]	;36 bit format or B,G,R 8 bits each
+OPDEF	VSYDAT	[VIDIN 1,]	;Synthesize DATA (also to (E))
+OPDEF	VLDADR	[VIDOUT 2,]	;16 bits right justified
+OPDEF	VSYADR	[VIDIN 2,]	;Synthesize ADR (also to (E))
+OPDEF	VLDBAK	[VIDOUT 3,]	;IOB 4-11 (of 36 bit word, 0=MSB)
+OPDEF	VOEVID	[VIDIN 4,]	;36 bit format palette(3),(11*PIXEL(3))
+OPDEF	VOECOL	[VIDIN 5,]	;B,G,R 8 bits each right justified
+OPDEF	VWECOL	[VIDIN 6,]	;Write enable color map - (E) trashed
+OPDEF	VWEVID	[VIDIN 7,]	;Write enable video buffer - (E) trashed
+OPDEF	VLDCOL	[VIDOUT 10,]	;36 bit mask XORed with synthesized data
+OPDEF	VLDSIZ	[VIDOUT 11,]	;OFFSET,,SIZE (in WDS/FLD (11 PXLS/WD))
+OPDEF	VLDCTR	[VIDOUT 12,]	;B0=video resolution (vs. high res B/W)
+				;B1=add (don't overwrite)
+				;B2=carry
+				;B3=interlace
+				;B4=NTSC color
+OPDEF	VLDPIX	[VIDOUT 13,]	;Inten.(3 bit),line (9 bit),,pixel(10 bit)
+OPDEF	VLDOFF	[VIDOUT 14,]	;Y offset,,X offset
+OPDEF	VWEDIV	[VIDIN 16,]	;Write enable divide table - (E) trashed
+OPDEF	VWENTS	[VIDIN 17,]	;Write enable NTSC table - (E) trashed
+
+There are three additional instructions which simulate part of the
+Stanford-III vector display:
+
+OPDEF	DPYINI	[772000,,0]	;Initialize display
+OPDEF	DPYOUT	[773000,,0]	;Interpret Stanford-III display format
+OPDEF	DPYADD	[767000,,0]	;Append Stanford-III display format
+
+	DPYINI POGB	;Take a block of 64 words at E (which contain
+			;pointers to "shadow" pieces-of-glass, fonts,
+			;and various other state (used in interrupts)).
+			;Zero all POG lengths, and blank screen.
+
+POGB:	<POG0 LENGTH(15 bits RJ),,BEGINING-POG-BUFFER>
+POGB+1:	<POG1 LENGTH(15 bits RJ),,BEGINING-POG-BUFFER>
+	...
+POGB+15:<POG15 LENGTH(15 bits RJ),,BEGINING-POG-BUFFER>
+				;These are pointers to blocks of memory where
+				;the display list for the previous piece of
+				;glass is copied. This data is subtracted
+				;from the image by DPYOUT before adding the
+				;new display list.
+
+POGB+16:<POG0 XMAX,,XMIN>	;Window boundaries
+POGB+17:<POG1 XMAX,,XMIN>
+	...
+POGB+31:<POG15 XMAX,,XMIN>
+
+POGB+32:<POG0 YMAX,,YMIN>	;Note: These are internal (- at top) coords.
+POGB+33:<POG1 YMAX,,YMIN>
+	...
+POGB+47:<POG15 YMAX,,YMIN>
+
+POGB+48:<LAST COLOR,,LAST FONT>	;Pointers to fonts (2K each)
+POGB+49:<FONT 1>
+POGB+50:<FONT 2>
+	...
+POGB+55:<FONT 7>
+
+POGB+56:<REMAINING LENGTH>	;State for interrupt recovery
+POGB+57:<DISPLAY BUFFER POINTER,,PIECE OF GLASS POINTER>
+POGB+58:<MICRO RETURN ADDRESS>
+POGB+59:<COLOR MASK,,MASK>	;Non VIC2 only
+POGB+60:<INTERLACED LINE 000000>;Non VIC2 only
+POGB+61:<X0,,X1>
+POGB+62:<Y0,,Y1>
+POGB+63:
+
+POGB+64:<AMEM[0]>
+POGB+65:<AMEM[1]>
+	...
+POGB+71:<AMEM[7]>
+	DPYOUT POG,E	;Similar to the stanford instruction. Takes
+       (DPYADD)		;a pointer and length for the display list
+			;for the piece of glass and puts it on the
+			;screen, deleting (or adding to) the previous
+			;contents of that piece of glass.
+
+E:	<LENGTH>,,<BEGINING>
+
+Below are the two objects (vectors and characters) implemented from
+the Stanford-III display system:
+
+Long Word Vector:
+!00 10!11 21!22 24!25  27!28!29!30 31!32  35!
+!  X  !  Y  ! BRT ! SIZE !  !M !  T  ! 0110 !
+BRT(color):		SIZE:		M:		T:
+0=no change		0=no change	0=relative	0=visible
+1=white			1=font 1	1=absolute	1=end point
+2=red			.				2=invisible
+3=yellow		.				3=undefined
+4=green			.				  (end point)
+5=blue			.
+6=magenta		.
+7=white(colored)	7=font 7
+
+CHaRacter:
+!00 06!07 13!14 20!21 27!28 34!35!
+! CH1 ! CH2 ! CH3 ! CH4 ! CH5 !1 !
+Vector algorithms:
+X(Y)=X(Y-1)+DXDY
+INTEN(Y,INT(X(Y)))=	3*(1-FRACT(X))		if A3DYDX GEQ 3
+			3-A3DYDX*FRACT(X)	if A3DYDX < 3
+INTEN(Y,INT(X(Y))+1)=	3*FRACT(X)		if A3DYDX GEQ 3
+			3-A3DYDX*(1-FRACT(X))	if A3DYDX < 3
+INTEN(Y,INT(X(Y))-K)=INTEN(Y,INT(X(Y))-(K-1))-A3DYDX
+INTEN(Y,INT(X(Y))+K)=INTEN(Y,INT(X(Y))+(K-1))-A3DYDX
+where:
+FRACT(X)	=fractional part of X
+INT(X)		=integer part of X
+X(Y)		=X(growing left to right) position as a function of
+			Y(growing top to bottom)
+INTEN(Y,X)	=intensity as a function of position
+DXDY		=slope of X vs. Y
+A3DYDX		=three times the absolute value of the slope of Y vs. X
+
+The compromise color/grey level coding is as follows:
+
+per word:	0	1	2	3	4	5	6	7
+per pixel:
+	0	sync	black	black	black	black	black	black	black
+	1	sync	W 1	W 1	W 1	W 1	W 1	W 1	W 1
+	2	sync	W 2	W 2	W 2	W 2	W 2	W 2	W 2
+	3	sync	W 3	W 3	W 3	W 3	W 3	W 3	W 3
+	4	sync	W 4	R 3	Y 3	G 3	B 3	M 3	W 4
+	5	sync	W 5	R 3	Y 3	G 3	B 3	M 3	W 5
+	6	sync	W 6	R 3	Y 3	G 3	B 3	M 3	W 6
+	7	sync	W 7	R 3	Y 3	G 3	B 3	M 3	W 7
+
+B/W objects are clipped to intensity level 3. Colored objects are always
+either intensity 0 (blank) or intensity 4. This will make the overlapping
+of a colored object over one B/W object always come out colored and of the
+correct intensity.
+
+Note that two overlapping colored objects will cancel. Also note that a
+colored object overlapping two B/W objects which already overlap will not
+come out correctly colored. Finally, it is still only possible to have
+one color per word, i.e. two differently colored objects in the same word
+will overwrite eachother.
+
+
+This code will take interrupts correctly, but not map faults, since it is
+in general impossible to save all ones state so that one can restart.
+Specifically, there is no provision currently for saving the micro PC
+from which you faulted.
+
+To get around this failing, it is necessary to "touch" (i.e., reference)
+each page that the display list might require. This has an unplesant
+interaction with the scheduler in Tenex, which will frequently not allow
+the page touching loop to terminate (it has to get all the pages mapped
+before it can let the code run). To get around this, the code turns off the
+real time clock before touching and turns it back on after touching so that
+the code can interrupt as usual. This prevents scheduling due to interrupts
+from the real time clock during page validation cycles (map operations
+where the physical memory is actually there, but the map is invalid, usually
+due to map CONOs.)
+\
+;Note that VIDTAB (the dispatch table) must appear before VIDIN
+;and VIDOUT due to forward referencing problems.
+
+	%VIDFOO = 0
+
+VIDTAB:		;dispatch table used by both VIDIN and VIDOUT.
+.REPEAT 16.
+[	MAPF[%VIDFOO] D[IOD] DEST[HOLD] JUMP[VIDCOM] C800$
+	%VIDFOO = %VIDFOO + 1
+]		;i/o sub sel = ac. input data and hold for memory write.
+
+VIDIN:	D[CONST (VIDTAB / 100)] ROT[6] DEST[Q] NORM$
+		;form high order 6 bits of table dispatch.
+	D[CONST (VIDTAB \ 100)] ALU[DORQ] DEST[Q] NORM$
+		;or in low order 6 bits of table dispatch.
+	D[IR] ROT[13.] MASK[4] ALU[D+Q] SDISP START-IN C600$
+		;add ac field and dispatch. start input.
+
+VIDOUT:	D[MEM] DEST[IOD] NORM$
+		;put contents effective address into iod output register.
+	D[CONST (VIDTAB / 100)] ROT[6] DEST[Q] NORM$
+		;form high order 6 bits of table dispatch.
+	D[CONST (VIDTAB \ 100)] ALU[DORQ] DEST[Q] NORM$
+		;or in low order 6 bits of table dispatch.
+	D[IR] ROT[13.] MASK[4] ALU[D+Q] SDISP START-OUT C600$
+		;add ac field and dispatch. start output.
+
+VIDCOM:		;common completion.
+	D[IR] ROT[8]	COND[OBUS<0] JUMP[MAIN] C600$
+		;if VIDOUT, done. jump main.
+	STRT-WRT MEMST$
+		;if VIDIN, write as in movem.
+;Main A-MEM:
+	INTEN,,FRACT	= 1	;For storage of vector display word
+	POG,,POGB	= 7	;Left by DPYINI
+
+.REPEAT XUCODE [
+	.USE[HIGHMEM]	;If 8K u-mem present, put video code there.
+]
+
+;This macro saves the address given as its argument so that returns
+;from interrupts can resume operation there. Jumps to VIDINT, which
+;saves AMEM, then goes to MAIN.
+
+;WARNING! WARNING !WARNING
+;THIS PIECE-OF-SHIT ASSEMBLER WON'T ACCEPT COMPOUND MACRO ARGUMENTS.
+;I.E., YOU MUST EVALUATE ARGUMENTS BEFORE INVOKING A MACRO.
+
+;ALSO, IF YOU CHANGE THE LENGTH OF THIS MACRO, REMEMBER TO ALTER THE
+;JUMP[. + 9]'S IN VIDRGT AND VIDLFT.
+
+.DEFINE	VIDSAV[%ADR]
+[	D[CONST (%ADR / 10000)] ROT[12.] DEST[Q] NORM $
+		;Q=high bit (SDISP loads all 16 bits)
+	D[CONST (77 & (%ADR / 100))] ROT[6] ALU[QORD] DEST[Q] NORM $
+		;Q=next 6 ADR bits
+	D[CONST (%ADR \ 100)] ALU[QORD] DEST[HOLD] NORM $
+		;Q=SAVE ADR
+	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[CONST 58.] ALU[Q+D] DEST[MA] STRT-WRT JUMP[VIDINT] NORM $
+		;MA=POGB+58	write SAVE ADR
+]
+;DPYINI
+;Save the POG block pointer for use by DPYOUT.
+VIDDPI:	D[CONST 4] DEST[DEV-ADR] NORM $
+		;DEV-ADR=INTERRUPT
+	D[CONST 0] DEST[IOD] START-OUT NORM $
+		;TURN OFF INTERRUPTS (SO WE DON'T GO TO THE SCHEDULER)
+	MAPF[6] C800 $
+		;BIT 35 = ON/OFF
+	D[CONST 36] DEST[DEV-ADR] NORM $
+		;DEV-ADR=36
+	D[IR] MASK[18.] DEST[POG,,POGB] DEST-A-MEM NORM $
+		;POG,,POGB=0,,E
+
+;Zero all lengths.
+	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB.
+	ALU[0] DEST[HOLD] NORM $
+		;HOLD=0
+	D[CONST 56.] ALU[Q+D] DEST[MA] STRT-WRT NORM $
+		;MA=POGB+56.	write (0) 
+	MAPF[NORM-WRT] DEST[FIXMAC-MAPF-WRT] D[CONST 15.] LLOAD NORM $
+		;Touch		Loop 16 times
+VIDIN1:	ALU[Q] DEST[MA] NORM $
+		;MA=Q		read
+	MAPF[NORM-WRT] ALU[Q+1] DEST[Q FIXMAC-MAPF-WRT] CYLEN[FIXM] $
+		;Q=Q+1		touch
+	D[MEM] ROT[3] MASK[21.] DEST[AR] NORM $
+		;AR=BACKGROUND,LENGTH,,BEGINING LSH 3 MASK 21 (LENGTH=0)
+	D[AR] ROT[36. - 3] DEST[MEMSTO] NORM $
+		;HOLD=BACKGROUND,0,,BEGINING	write
+
+;Initialize the remaining length counter for this piece of glass.
+	D[MEM] MASK[18.] ALU[D-1] DEST[AR] NORM $
+		;AR=BEGINING POG-1
+	D[AR] ALU[D-1] DEST[MA] NORM $
+		;MA=BEGINING -2	 read max length
+	MAPF[NORM-RD] NORM $
+		;WAIT
+	D[MEM] DEST[HOLD] NORM $
+		;HOLD=MAX LENGTH	Sigh. HOLD and MEM really are different
+	D[AR] DEST[MA] STRT-WRT NORM $
+		;MA=BEGINING-1	write remaining length
+	MAPF[NORM-WRT] DEST[FIXMAC-MAPF-WRT] LOOP[VIDIN1] CYLEN[FIXM] $
+		;touch and loop
+
+;Turn interrupts back on.
+	D[CONST 4] DEST[DEV-ADR] NORM $
+		;DEV-ADR=INTERRUPT
+	D[CONST 1] DEST[IOD] START-OUT NORM $
+		;TURN ON INTERRUPTS
+	MAPF[6] C800 $
+		;BIT 35 = ON/OFF
+	D[CONST 36] DEST[DEV-ADR] NORM $
+		;DEV-ADR=36
+
+;Clear screen.
+	D[CONST 44] ROT[30.] DEST[IOD] START-OUT 
+		COND[HALF] JUMP[VIDNTR] NORM $
+		;IOD=440000,,000000	Check HALF
+VIDHER:	MAPF[12] D[CONST 7] ROT[6] DEST[Q] C800 $
+		;VLDCTR (overwrite)	Q=7*64 (past vert. sync)
+	D[CONST 30.] ROT[3] DEST[AR] NORM $
+		;AR=240. (major loops)
+VIDIN2:	D[CONST 57.] LLOAD NORM $
+		;Loop 58. times
+	D[CONST 6] ALU[Q+D] DEST[Q] NORM $
+		;Q=Q+6 (past horiz. sync)
+VIDIN3:	ALU[Q] DEST[IOD] START-OUT C800 $
+		;IOD=Q
+	MAPF[2] C800 $
+		;VLDADR
+	D[CONST 7] ROT[33.] DEST[IOD] START-OUT C800 $
+		;IOD=700000,,000000
+	MAPF[1] START-IN C800 $
+		;VLDDAT (blank)
+	MAPF[7]  C800 $
+		;VWEVID
+	C800 $
+		;WAIT
+	D[CONST 1] ROT[14.] ALU[Q+D] DEST[IOD] START-OUT C800 $
+		;IOD=Q+1 FIELD
+	MAPF[2] C800 $
+		;VLDADR
+	D[CONST 7] ROT[33.] DEST[IOD] START-OUT C800 $
+		;IOD=700000,,000000
+	MAPF[1] START-IN C800 $
+		;VLDDAT (blank)
+	MAPF[7] ALU[Q+1] DEST[Q]
+		COND[INTRPT] JUMP[VIDNTI] C800 $
+		;VWEVID		Q=Q+1	If interrupt, save state
+VIDIN4:	LOOP[VIDIN3] C800 $
+		;loop
+	D[AR] ALU[D-1] DEST[AR]
+		COND[-OBUS=0] JUMP[VIDIN2] C600 $
+		;AR=AR-1	if 0, done.
+
+;Done.
+	ALU[0] DEST[DEV-ADR] SPEC[CLR-HALF] JUMP[GOMAIN] NORM $
+		;Reset device address, clear HALF
+
+;Interrupt init
+VIDNTI:	ALU[Q] DEST[HOLD] NORM $
+		;HOLD=Q
+	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[CONST 1] ROT[6] ALU[Q+D] DEST[MA] STRT-WRT NORM $
+		;MA=POGB+64.	write old Q
+	MAPF[NORM-WRT] DEST[FIXMAC-MAPF-WRT] CYLEN[FIXM] $
+		;TOUCH
+	D[AR] DEST[HOLD] NORM $
+		;HOLD=AR
+	D[CONST 1] ROT[6] ALU[D+Q+1] DEST[MA] STRT-WRT NORM $
+		;MA=POGB+65.	write old AR
+	MAPF[NORM-WRT] DEST[FIXMAC-MAPF-WRT] CYLEN[FIXM] $
+		;TOUCH
+	D[CONST 1] ROT[35. - 4] DEST[Q] NORM $
+		;Q=BIT 4 ON
+	D[PC] ALU[D-1] DEST[PC] NORM $
+		;PC=PC-1
+	D[PC] ALU[DORQ] DEST[CRYOV] NORM $
+		;Set HALF flag
+	ALU[0] DEST[DEV-ADR] JUMP[GOMAIN] NORM $
+		;Reset dev and disp to intrpt
+
+;Return from init interupt.
+VIDNTR:	MAPF[12] D[10 + POG,,POGB] MASK[18.] DEST[Q] C800 $
+		;VLDCTR		Q=POGB
+	D[CONST 1] ROT[6] ALU[D+Q+1] DEST[MA] NORM $
+		;MA=POGB+65.	read old AR
+	MAPF[NORM-RD] D[CONST 30.] ROT[3] DEST[Q FIXMAC-MAPF-RD]
+		CYLEN[FIXM] $
+		;TOUCH		Q=240.
+	D[MEM] MASK[18.] ALU[Q-D]
+		COND[OBUS<0] JUMP[VIDHER] C600 $
+		;Check for half word error (i.e. HALF left from another inst)
+	D[MEM] MASK[18.] DEST[AR] NORM $
+		;Restore AR
+	D[10 + POG,,POGB] MASK[18.] DEST[Q] C800 $
+		;Q=POGB
+	D[CONST 1] ROT[6] ALU[Q+D] DEST[MA] NORM $
+		;MA=POGB+64.	read old Q
+	MAPF[NORM-RD] DEST[FIXMAC-MAPF-RD] CYLEN[FIXM] $
+		;TOUCH
+	D[MEM] MASK[6] DEST[Q]
+		COND[-OBUS=0] JUMP[VIDNR1] C550 $
+		;Old Q mod 6.
+	D[CONST 1] ROT[6] DEST[Q] NORM $
+		;If Q=0, Q=64.
+VIDNR1:	D[CONST 1] ROT[6] ALU[D-Q] LLOAD NORM $
+		;Count=remaining till end of line
+	D[MEM] DEST[Q] JUMP[VIDIN4] NORM $
+		;Restore Q and resume from interrupt
+;DPYOUT (DPYADD) main loop
+VIDDPA:	D[CONST 1] ROT[35. - 4] DEST[Q] NORM $
+		;Q=BIT 4 ON
+	D[PC] ALU[DORQ] DEST[CRYOV] NORM $
+		;SET HALF FLAG
+
+;FooVision device address (also AMEM block)
+VIDDPO:	D[CONST 4] DEST[DEV-ADR] NORM $
+		;DEV-ADR=INTERRUPT
+	D[CONST 0] DEST[IOD] START-OUT NORM $
+		;TURN OFF INTERRUPTS (SO WE DON'T GO TO THE SCHEDULER)
+	MAPF[6] C800 $
+		;BIT 35 = ON/OFF
+	D[CONST 36] DEST[DEV-ADR] NORM $
+		;DEV-ADR=36
+
+;Save AC=POG in AMEM
+	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[IR] ROT[13.] MASK[4] DEST[AR] NORM $
+		;AR=POG=AC
+	D[AR] ROT[18.] ALU[DORQ] DEST[POG,,POGB] DEST-A-MEM NORM $
+		;POG,,POGB=AC,,POGB
+
+;"Touch" the first and last words of the POG block, so we don't
+;have to worry about map faulting on them later.
+	D[10 + POG,,POGB] MASK[18.] DEST[Q MA] NORM $
+		;Q,MA=POGB
+	MAPF[NORM-WRT] DEST[FIXMAC-MAPF-WRT] CYLEN[FIXM] $
+		;TOUCH FIRST WORD
+	D[CONST 11] ROT[3] ALU[D-1] DEST[AR] NORM $
+		;AR=71.
+	D[AR] ALU[D+Q] DEST[MA] NORM $
+		;MA=POGB+71.
+	MAPF[NORM-WRT] DEST[FIXMAC-MAPF-WRT] CYLEN[FIXM] $
+		;TOUCH LAST WORD
+
+;Touch E. If left half E (=length of display list)=0, don't bother to
+;touch display list.
+	D[IR] MASK[18.] DEST[MA] NORM $
+		;MA=E
+	MAPF[NORM-RD] DEST[FIXMAC-MAPF-RD] CYLEN[FIXM] $
+		;TOUCH
+	D[MEM] MASK[18.] DEST[AR] NORM $
+		;AR=BEGINING
+	D[MEM] SPEC[LEFT] COND[OBUS=0] JUMP[VIDTDE] C550 $
+		;If LENGTH=0, don't touch (but do continue)
+
+;Touch the display list. Start with the first word, touch every
+;512.th word until run off end. Then touch last word.
+VIDTDL:	D[AR] DEST[Q MA] NORM $
+		;Q,MA=AR (initially begining of display list)
+	MAPF[NORM-RD] D[CONST 1] ROT[9.] ALU[Q+D]
+		DEST[AR Q FIXMAC-MAPF-RD] CYLEN[FIXM] $
+		;AR,Q=AR+1 PAGE		touch (post inc)
+	D[IR] MASK[18.] DEST[MA] NORM $
+		;MA=E
+	MAPF[NORM-RD] DEST[FIXMAC-MAPF-RD] CYLEN[FIXM] $
+		;WAIT
+	D[MEM] MASK[18.] ALU[Q-D] DEST[Q] NORM $
+		;Q=AR-BEGINING
+	D[MEM] ROT[18.] MASK[18.] ALU[D-Q-1] DEST[Q]
+		COND[-OBUS<0] JUMP[VIDTDL] C600 $
+		;Q=LENGTH-(AR-BEGINING)-1	if<0 done
+	D[AR] ALU[Q+D] DEST[MA] NORM $
+		;MA=BEGINING+LENGTH-1
+	MAPF[NORM-RD] DEST[FIXMAC-MAPF-RD] CYLEN[FIXM] $
+		;TOUCH LAST PAGE
+
+;Touch the POG buffer for this POG. Same as for display list.
+;(POGn-2)=POG maximum length
+;(POGn-1)=POG words left
+VIDTDE:	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[10 + POG,,POGB] ROT[18.] MASK[4] ALU[Q+D] DEST[MA] NORM $
+		;MA=POGB+POG	read begining pog buffer
+	MAPF[NORM-RD] NORM $
+		;wait
+	D[MEM] MASK[18.] DEST[Q AR] NORM $
+		;AR,Q=0,,BEGINING POG BUFFER
+	D[CONST 2] ALU[Q-D] DEST[MA] NORM $
+		;MA=POGN-2	read maximum length
+	MAPF[NORM-WRT] DEST[FIXMAC-MAPF-WRT] CYLEN[FIXM] $
+		;TOUCH -2nd word
+	D[MEM] ROT[18.] SPEC[LEFT] ALU[DORQ] DEST[AR] NORM $
+		;AR=MAXIMUM LENGTH,,BEGINING POG
+	D[AR] DEST[INTEN,,FRACT] DEST-A-MEM NORM $
+		;INTEN,,FRACT=MAXIMUM LENGTH,,BEGINING POG
+VIDTNL:	D[AR] DEST[Q MA] NORM $
+		;Q,MA=AR
+	MAPF[NORM-WRT] D[CONST 1] ROT[9.] ALU[Q+D]
+		DEST[Q FIXMAC-MAPF-WRT] CYLEN[FIXM] $
+		;AR,Q=AR+1 PAGE		touch (post inc)
+	D[CONST 1] ROT[18. + 9.] ALU[Q-D] DEST[AR] NORM $
+		;AR=AR+(-1000,,1000)
+	D[AR] SPEC[LEFT] DEST[Q] NORM $
+		;Q=REMAINING LENGTH,,0
+	D[CONST 1] ROT[18.] ALU[Q-D]
+		COND[-OBUS<0] JUMP[VIDTNL] C600 $
+		;If LENGTH LEQ 0, done
+	D[10 + INTEN,,FRACT] ROT[18.] MASK[15.] ALU[D-1] DEST[Q] NORM $
+		;Q=LENGTH-1
+	D[10 + INTEN,,FRACT] MASK[18.] ALU[D+Q] DEST[MA] NORM $
+		;MA=BEGINING+LENGTH-1
+	MAPF[NORM-WRT] DEST[FIXMAC-MAPF-WRT] CYLEN[FIXM] $
+		;TOUCH LAST WORD
+
+;Touch all 7 fonts. Same as above.
+VIDTNE:
+	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[CONST 48.] ALU[Q+D] DEST[AR] NORM $
+		;AR=POGB+48
+	D[CONST 6] LLOAD NORM $
+		;LOOP 7 TIMES
+VIDTFL:	D[AR] ALU[D+1] DEST[MA AR] NORM $
+		;MA,AR=AR+1
+	NORM $
+		;WAIT
+	D[MEM] MASK[18.] DEST[MA Q] NORM $
+		;MA,Q=FONT 1
+	MAPF[NORM-RD] DEST[FIXMAC-MAPF-RD] CYLEN[FIXM] $
+		;TOUCH PAGE
+.REPEAT	3
+[	D[CONST 1] ROT[9.] ALU[Q+D] DEST[MA Q] NORM $
+		;MA,Q=Q+1 PAGE
+	MAPF[NORM-RD] DEST[FIXMAC-MAPF-RD] CYLEN[FIXM] $
+		;TOUCH PAGE
+]
+	D[CONST 1] ROT[9.] ALU[D-1] DEST[Q] NORM $
+		;Q=1 PAGE - 1 WORD
+	D[MA] ALU[D+Q] DEST[MA] NORM $
+		;MA=LAST WORD OF FONT
+	MAPF[NORM-RD] DEST[FIXMAC-MAPF-RD] LOOP[VIDTFL] CYLEN[FIXM] $
+		;TOUCH PAGE	LOOP
+
+;Turn interrupts back on.
+	D[CONST 4] DEST[DEV-ADR] NORM $
+		;DEV-ADR=INTERRUPT
+	D[CONST 1] DEST[IOD] START-OUT NORM $
+		;TURN ON INTERRUPTS
+	MAPF[6] C800 $
+		;BIT 35 = ON/OFF
+	D[CONST 36] DEST[DEV-ADR] NORM $
+		;DEV-ADR=36
+
+;If length rememaining not 0, return from interrupt.
+	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[CONST 56.] ALU[Q+D] DEST[MA] NORM $
+		;MA=POGB+56.	read LENGTH REMAINING
+	MAPF[NORM-RD] NORM $
+		;WAIT
+	D[MEM] COND[-OBUS=0] JUMP[VIDRET] C550 $
+		;If LENGTH REMAINING NEQ 0, return from interrupt
+
+;Check HALF flag to see if DPYADD.
+	COND[-HALF] JUMP[VIDMHL] NORM $
+		;If HALF, DPYADD
+
+;Form the display list and POG buffer pointers.
+	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[10 + POG,,POGB] ROT[18.] MASK[4] ALU[Q+D] DEST[MA] NORM $
+		;MA=POGB+POG	read LENGTH,,BEGINING
+	MAPF[NORM-RD] NORM $
+		;WAIT
+	D[MEM] MASK[18.] DEST[Q] NORM $
+		;Q=0,,BEGINING
+	D[MEM] ROT[18.] MASK[15.] ALU[Q+D] DEST[Q] NORM $
+		;Q=0,,BEGINING+LENGTH
+	D[IR] DEST[MA] NORM $
+		;MA=E	read BEGINING
+	MAPF[NORM-RD] DEST[FIXMAC-MAPF-RD] CYLEN[FIXM] $
+		;WAIT
+	D[MEM] ROT[18.] SPEC[LEFT] ALU[DORQ] DEST[HOLD] NORM $
+		;HOLD=DISP BEGINING,,POG BEGINING+LENGTH
+	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[CONST 57.] ALU[Q+D] DEST[MA] STRT-WRT NORM $
+		;MA=POGB+57.	write DISP BEGINING,,POG BEGINING
+	MAPF[NORM-RD] NORM $
+		;WAIT
+
+;Get length of display list and load control register
+;with code for addition. Add to length in POG.
+	D[IR] MASK[18.] DEST[MA] NORM $
+		;MA=E		read LENGTH
+	MAPF[NORM-RD] D[10 + POG,,POGB] MASK[18.] DEST[Q FIXMAC-MAPF-RD]
+		CYLEN[FIXM] $
+		;Q=POGB
+	D[MEM] ROT[18.] MASK[15.] DEST[AR HOLD] NORM $
+		;AR,HOLD=LENGTH
+	D[CONST 56.] ALU[Q+D] DEST[MA] STRT-WRT NORM $
+		;MA=POGB+56.	write LENGTH
+	MAPF[NORM-RD] D[CONST 64] ROT[30.] DEST[IOD] START-OUT NORM $
+		;IOD=640000,,000000
+	MAPF[12] D[10 + POG,,POGB] ROT[18.] MASK[18.] ALU[Q+D] DEST[MA] NORM $
+		;VLDCTR (add)	MA=POGB+POG	read BACK,LENGTH,,BEGIN
+	MAPF[NORM-RD] D[AR] ROT[18.] DEST[Q] NORM $
+		;Q=LENGTH,,0
+	D[MEM] ALU[D+Q] DEST[MEMSTO] JUMP[VIDMLL] NORM $
+		;HOLD=BACK,LENGTH+LENGTH,,BEGIN	write
+
+;This is the outermost loop. It is gone through twice, once with
+;first-half-done off subtracting the previous POG buffer, then with
+;first-half-done on adding the display list and copying into the
+;POG buffer.
+
+;Form the display list and POG buffer pointers.
+VIDMHL:	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[10 + POG,,POGB] ROT[18.] MASK[4] ALU[Q+D] DEST[MA] NORM $
+		;MA=POGB+POG	read LENGTH,,BEGINING
+	MAPF[NORM-RD] NORM $
+		;WAIT
+	D[MEM] MASK[18.] DEST[Q AR] NORM $
+		;AR Q=0,,BEGINING
+	D[IR] DEST[MA] NORM $
+		;MA=E	read BEGINING
+	MAPF[NORM-RD] DEST[FIXMAC-MAPF-RD] CYLEN[FIXM] $
+		;WAIT
+	D[MEM] ROT[18.] SPEC[LEFT] ALU[DORQ] DEST[HOLD] NORM $
+		;HOLD=DISP BEGINING,,POG BEGINING
+	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[CONST 57.] ALU[Q+D] DEST[MA] STRT-WRT NORM $
+		;MA=POGB+57.	write DISP BEGINING,,POG BEGINING
+
+;Initialize the remaining length counter for this piece of glass.
+	MAPF[NORM-RD] D[AR] DEST[Q] NORM $
+		;Q=BEGINING POG
+	D[CONST 2] ALU[Q-D] DEST[MA] NORM $
+		;MA=BEGINING -2	 read max length
+	MAPF[NORM-RD] NORM $
+		;WAIT
+	D[MEM] DEST[HOLD] NORM $
+		;HOLD=MAX LENGTH	Sigh. HOLD and MEM really are different
+	D[AR] ALU[D-1] DEST[MA] STRT-WRT NORM $
+		;MA=BEGINING-1	write remaining length
+
+;Check for first half done.
+	MAPF[NORM-RD] COND[HALF] JUMP[VIDMHH] NORM $
+		;IF -HALF:
+
+;If first half not done, get length of POG buffer and load the control
+;register with the code for subtraction.
+	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[10 + POG,,POGB] ROT[18.] MASK[4] ALU[Q+D] DEST[MA] NORM $
+		;MA=POGB+POG	read LENGTH,,BEGINING
+	MAPF[NORM-RD] NORM $
+		;WAIT
+	D[MEM] ROT[18.] MASK[15.] DEST[HOLD] NORM $
+		;HOLD=LENGTH
+	D[CONST 56.] ALU[Q+D] DEST[MA] STRT-WRT NORM $
+		;MA=POGB+56.	write LENGTH
+	MAPF[NORM-RD] D[CONST 74] ROT[30.] DEST[IOD] START-OUT NORM $
+		;IOD=740000,,000000
+	MAPF[12] JUMP[VIDMLL] C800 $
+		;VLDCTR (subtract)
+
+;If first half done, get length of display list and load control register
+;with code for addition. Put length in POG.
+VIDMHH:	D[IR] MASK[18.] DEST[MA] NORM $
+		;MA=E		read LENGTH
+	MAPF[NORM-RD] D[10 + POG,,POGB] MASK[18.] DEST[Q FIXMAC-MAPF-RD]
+		CYLEN[FIXM] $
+		;Q=POGB
+	D[MEM] ROT[18.] MASK[15.] DEST[AR HOLD] NORM $
+		;AR,HOLD=LENGTH
+	D[CONST 56.] ALU[Q+D] DEST[MA] STRT-WRT NORM $
+		;MA=POGB+56.	write LENGTH
+	MAPF[NORM-RD] D[CONST 64] ROT[30.] DEST[IOD] START-OUT NORM $
+		;IOD=640000,,000000
+	MAPF[12] D[10 + POG,,POGB] ROT[18.] MASK[4] ALU[Q+D] DEST[MA] NORM $
+		;VLDCTR (add)	MA=POGB+POG	read BACK,LENGTH,,BEGIN
+	MAPF[NORM-RD] D[AR] ROT[18.] DEST[Q] NORM $
+		;Q=LENGTH,,0
+	D[MEM] ROT[3] MASK[21.] DEST[AR] NORM $
+		;AR=BACK,LENGTH,,BEGIN LSH3 ROT21 (LENGTH=0)
+	D[AR] ROT[36. - 3] ALU[DORQ] DEST[MEMSTO] $
+		;HOLD=BACK,LENGTH,,BEGIN	write
+
+;This is the display list or POG buffer loop. It extracts words and
+;determines whether they are characters or vectors.
+
+;If length = 0, go to end of half-done loop.
+VIDMLL:	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[CONST 56.] ALU[Q+D] DEST[MA] NORM $
+		;MA=POGB+56.	read LENGTH
+	MAPF[NORM-RD] NORM $
+		;NORM
+	D[MEM] MASK[18.] COND[OBUS=0] JUMP[VIDMHE] C550 $
+		;If LENGTH=0, end
+
+;Check and update remaining length.
+	D[10 + POG,,POGB] ROT[18.] MASK[4] ALU[Q+D] DEST[MA] NORM $
+		;MA=POGB+POG	read length,,BEGINING
+	MAPF[NORM-RD] NORM $
+		;WAIT
+	D[MEM] MASK[18.] ALU[D-1] DEST[MA] NORM $
+		;MA=BEGINING-1	read length remaining
+	MAPF[NORM-RD] NORM $
+		;WAIT
+	D[MEM] ALU[D-1] DEST[MEMSTO]
+		COND[OBUS<0] JUMP[VIDMHE] C600 $
+		;HOLD=REMAINING LENGTH-1	write remaining length
+		;If length remaining-1<0, end this half(add or sub)
+
+;Read pointers and chech half.
+	D[CONST 57.] ALU[Q+D] DEST[MA] NORM $
+		;MA=POGB+57.	read DISP LIST PTR,,POG BUFF PTR
+	MAPF[NORM-RD] COND[HALF] JUMP[VIDMLH] NORM $
+		;If -HALF
+
+;If first half not done, read from POG buffer.
+	D[MEM] MASK[18.] DEST[MA] NORM $
+		;MA=POG BUFF PTR	read POG WORD
+	MAPF[NORM-RD] JUMP[VIDMLE] NORM $
+		;WAIT
+
+;If first half done, read from display list and copy into POG buffer.
+VIDMLH:	D[MEM] ROT[18.] MASK[18.] DEST[MA] NORM $
+		;MA=DISP LIST PTR	read DISPLAY WORD
+	MAPF[NORM-RD] NORM $
+		;WAIT
+	D[MEM] DEST[AR] NORM $
+		;AR=DISPLAY WORD
+	D[CONST 57.] ALU[Q+D] DEST[MA] NORM $
+		;MA=POGB+57.	read DISP LIST PTR,,POG BUFF PTR
+	MAPF[NORM-RD] NORM $
+		;WAIT
+	D[MEM] MASK[18.] DEST[Q]  NORM $
+		;Q=POG BUFF PTR
+	D[AR] DEST[HOLD] NORM $
+		;HOLD=DISPLAY WORD
+	ALU[Q] DEST[MA] STRT-WRT NORM $
+		;MA=POG BUFF PTR	write DISPLAY WORD
+	MAPF[NORM-RD] D[AR] DEST[HOLD] NORM $
+		;HOLD=DISPLAY WORD
+;;;Please note the above kludge. This is necessary because HOLD
+;;;forgets its data whenever MA changes, even on a write (contrary
+;;;to the explanation in the microcode manual).
+
+;Decode opcode of display word (character or vector).
+VIDMLE:	D[MEM] DEST[INTEN,,FRACT] DEST-A-MEM NORM $
+		;INTEN,,FRACT=NEXT WORD
+	D[MEM] MASK[1]
+		COND[-OBUS=0] JUMP[VIDCHI] C550 $
+		;If bit 35=1, character
+	D[MEM] MASK[4] DEST[Q] NORM $
+		;Q=4 LSB'S
+	D[CONST 06] ALU[Q#D]
+		COND[OBUS=0] JUMP[VIDVCI] C550 $
+		;If 4 lsb's=0110, vector
+
+;Decrement length, and increment pointers.
+VIDDON:	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[CONST 56.] ALU[Q+D] DEST[MA] NORM $
+		;MA=POGB+56.	read LENGTH
+	MAPF[NORM-RD] NORM $
+		;WAIT
+	D[MEM] ALU[D-1] DEST[MEMSTO] NORM $
+		;HOLD=LENGTH-1	write LENGTH
+	D[CONST 57.] ALU[Q+D] DEST[MA] NORM $
+		;MA=POGB+57.	read DISP LIST PTR,,POG BUFF PTR
+	MAPF[NORM-RD] D[CONST 1,,1] DEST[Q] NORM $
+		;Q=1,,1
+	D[MEM] ALU[D+Q] DEST[MEMSTO] JUMP[VIDMLL] NORM $
+		;HOLD=DISP LIST PTR,,POG BUFF PTR + 1,,1	write
+
+;Zero length remaining (so won't try to recover from interrupt).
+VIDMHE:	ALU[0] DEST[HOLD] NORM $
+		;HOLD=0
+	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[CONST 56.] ALU[Q+D] DEST[MA] STRT-WRT NORM $
+		;MA=POGB+56.	write LENGTH REMAINING
+
+;If first half done, terminate. If not, set HALF flag and loop
+	MAPF[NORM-RD] COND[HALF] JUMP[VIDEND] NORM $
+		;If HALF, end
+	D[CONST 1] ROT[35. - 4] DEST[Q] NORM $
+		;Q=bit 4 on
+	D[PC] ALU[DORQ] DEST[CRYOV] JUMP[VIDMHL] NORM $
+		;Set HALF flag and loop
+;Interrupt and End
+;Save AMEM and go to MAIN to take interrupt.
+VIDINT:	MAPF[NORM-RD] D[PC] ALU[D-1] DEST[PC] JUMP[VIDSAM] NORM $
+		;PC=PC-1
+VIDEND:	SPEC[CLR-HALF] NORM $
+		;Clear HALF
+VIDSAM:	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[CONST 1] ROT[6] ALU[Q+D] DEST[Q] NORM $
+		;Q=POGB+64.
+	%VIDFOO = 0
+.REPEAT	8.
+[	MAPF[NORM-RD] D[10 + %VIDFOO] DEST[HOLD] NORM $
+		;HOLD=AMEM[%VIDFOO]
+	D[CONST %VIDFOO] ALU[Q+D] DEST[MA] STRT-WRT NORM $
+		;MA=POGB+64.+%VIDFOO	write
+	%VIDFOO = %VIDFOO + 1
+]
+	MAPF[NORM-RD] ALU[0] DEST[DEV-ADR] JUMP[GOMAIN] NORM $
+		;Reset device address, dispatch to interrupt or next instr.
+;Recovery
+;Restore AMEM.
+VIDRET:	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[CONST 1] ROT[6] ALU[Q+D] DEST[Q] NORM $
+		;Q=POGB+64.
+	%VIDFOO = 0
+.REPEAT	8.
+[	D[CONST %VIDFOO] ALU[Q+D] DEST[MA] NORM $
+		;MA=POGB+64.+%VIDFOO	read
+	MAPF[NORM-RD] NORM $
+		;WAIT
+	D[MEM] DEST[%VIDFOO] DEST-A-MEM NORM $
+		;AMEM[%VIDFOO]=MEM
+	%VIDFOO = %VIDFOO + 1
+]
+
+;Check for first half done.
+	D[10 + POG,,POGB] MASK[18.] DEST[Q]
+		COND[HALF] JUMP[VIDRIH] NORM $
+		;Q=POGB		If -HALF
+
+;If first half not done, default color = modified last color
+;and xor mask = -1.
+	D[CONST 48.] ALU[Q+D] DEST[MA] NORM $
+		;MA=POGB+48.	read LAST COLOR
+	MAPF[NORM-RD] D[CONST 1] ROT[33.] ALU[D-1] DEST[AR] NORM $
+		;AR=077777,,777777
+	D[MEM] DEST[Q] NORM $
+		;Q=LAST COLOR,,LAST FONT
+	D[MEM] ROT[2] MASK[2]
+		COND[OBUS=0] JUMP[VIDRIM] C550 $
+		;If color>1
+	D[CONST 7] ROT[33.] ALU[DORQ] DEST[Q] NORM $
+		;Q=COLOR 7 (WHITE FROM COLOR)
+VIDRIM:
+.REPEAT VIC2 [
+	D[AR] ALU[DORQ] DEST[IOD] START-OUT NORM $
+		;IOD=MODIFIED LAST COLOR 77777,,777777
+];VIC2
+.REPEAT 1 - VIC2 [
+	D[AR] ALU[DORQ] DEST[HOLD] NORM $
+		;MEM=MODIFIED LAST COLOR 77777,,777777
+	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[CONST 59.] ALU[Q+D] DEST[MA] STRT-WRT NORM $
+		;MA=POGB+59	write <COLOR MASK,,MASK>
+	MAPF[NORM-RD] JUMP[VIDRIE] NORM $
+		;WAIT
+];1-VIC2
+
+;If first half done, default color = last color, and xor mask = 0.
+VIDRIH:	D[CONST 48.] ALU[Q+D] DEST[MA] NORM $
+		;MA=POGB+48.	read LAST COLOR
+	MAPF[NORM-RD] D[CONST 1] ROT[33.] ALU[D-1] DEST[AR] NORM $
+		;AR=077777,,777777
+	D[MEM] DEST[Q] NORM $
+		;Q=LAST COLOR,,LAST FONT
+.REPEAT VIC2 [
+	D[AR] ALU[-D&Q] DEST[IOD] START-OUT NORM $
+		;IOD=LAST COLOR 00000,,000000
+];VIC2
+.REPEAT 1 - VIC2 [
+	D[AR] ALU[-D&Q] DEST[HOLD] NORM $
+		;MEM=LAST COLOR 00000,,000000
+	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[CONST 59.] ALU[Q+D] DEST[MA] STRT-WRT NORM $
+		;MA=POGB+59	write <COLOR MASK,,MASK>
+	MAPF[NORM-RD] NORM $
+		;WAIT
+];1-VIC2
+
+;Dispatch to saved microcode address to resume from interrupt.
+VIDRIE:	MAPF[10] D[10 + POG,,POGB] MASK[18.] DEST[Q] C800 $
+		;VLDCOL		Q=POGB
+	D[CONST 58.] ALU[Q+D] DEST[MA] NORM $
+		;MA=POGB+58.	read SAVE ADR
+	MAPF[NORM-RD] NORM $
+		;WAIT
+	D[MEM] SDISP C500 $
+		;Dispatch on SAVE ADR
+;Character A-MEM:
+
+	WORD,,PIXEL3	= 0
+	YSIZE-1,,FONTPTR = 1
+	XMAX,,XMIN	= 2
+	YMAX,,YMIN	= 3
+	COLOR		= 4
+	XSIZE3,,XSIZE	= 5
+	LINE,,BYTEPTR	= 6
+	POG,,POGB	= 7
+
+;Note: The zeroth word of the font contains HEIGHT,,WIDTH
+;for that font.
+;Character body
+
+;Get initial word and 3*pixel.
+VIDCHI:	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[CONST 61.] ALU[Q+D] DEST[MA] NORM $
+		;MA=POGB+61.	read X0,,X1
+	MAPF[NORM-RD] D[CONST 5] ROT[6] ALU[D-1] DEST[Q] NORM $
+		;Q=319.
+	D[MEM] MASK[18.] ALU[D+Q] DEST[AR] NORM $
+		;AR=X1+319. (0=left hand edge)
+	D[AR] MASK[18.] DEST[Q AR] NORM $
+		;Q,AR=X1+319. (eliminate carry across halfwords)
+	D[AR] ROT[1] ALU[D+Q] DEST[AR] PUSHJ[VIDD33] NORM $
+		;AR=3*(corrected X coordinate), divide by 33
+	D[MEM] ROT[18.] ALU[DORQ] DEST[WORD,,PIXEL3] DEST-A-MEM NORM $
+		;WORD,,PIXEL3=QUOTIENT,,REMAINDER
+
+;Initialize line and byte pointers.
+	D[MA] ALU[D+1] DEST[MA] NORM $
+		;MA=POGB+62.	read Y0,,Y1
+	MAPF[NORM-RD] D[CONST 4] ROT[18. + 6] DEST[Q] NORM $
+		;Q=256,,0
+	D[MEM] ROT[18.] SPEC[LEFT] ALU[D+Q] DEST[Q] NORM $
+		;Q=Y1+256.,,0
+	D[CONST 7] ALU[DORQ] DEST[LINE,,BYTEPTR] DEST-A-MEM NORM $
+		;LINE,,BYTEPTR=Y1+256.,,7
+
+;Form XMAX,,XMIN
+	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[10 + POG,,POGB] ROT[18.] MASK[4] ALU[Q+D] DEST[Q] NORM $
+		;Q=POGB+POG
+	D[CONST 16.] ALU[Q+D] DEST[MA] NORM $
+		;MA=POGB+16.+POG	read XMAX,,XMIN
+	MAPF[NORM-RD] NORM $
+		;WAIT
+	D[MEM] DEST[XMAX,,XMIN] DEST-A-MEM NORM $
+		;XMAX,,XMIN
+
+;Form YMAX,,YMIN
+	D[MA] DEST[Q] NORM $
+		;Q=MA
+	D[CONST 16.] ALU[D+Q] DEST[MA] NORM $
+		;MA=POGB+32.+POG	read YMAX,,YMIN
+	MAPF[NORM-RD] NORM $
+		;WAIT
+	D[MEM] DEST[YMAX,,YMIN] DEST-A-MEM NORM $
+		;YMAX,,YMIN
+
+;Test HALF flag.
+	D[10 + POG,,POGB] MASK[18.] DEST[Q]
+		COND[HALF] JUMP[VIDCHH] NORM $
+		;Q=POGB		if -HALF
+
+;If not HALF, subtract old image with color=last color.
+	D[CONST 48.] ALU[D+Q] DEST[MA] NORM $
+		;MA=POGB+48.	read LAST COLOR
+	MAPF[NORM-RD] D[CONST 1] ROT[33.] ALU[D-1] DEST[AR] NORM $
+		;AR=077777,,777777
+	D[MEM] DEST[Q] NORM $
+		;Q=LAST COLOR,,LAST FONT
+	D[MEM] ROT[2] MASK[2]
+		COND[OBUS=0] JUMP[VIDCHM] C550 $
+		;If color>1
+	D[CONST 7] ROT[33.] ALU[DORQ] DEST[Q] NORM $
+		;Q=COLOR 7 (WHITE FROM COLOR)
+VIDCHM:
+	D[AR] ALU[DORQ] DEST[COLOR] DEST-A-MEM JUMP[VIDSCL] NORM $
+		;COLOR=modified last color 77777,,777777
+
+;If HALF, add new image with last color.
+VIDCHH:	D[CONST 48.] ALU[D+Q] DEST[MA] NORM $
+		;MA=POGB+48.	read LAST COLOR
+	MAPF[NORM-RD] D[CONST 1] ROT[33.] ALU[D-1] DEST[AR] NORM $
+		;AR=077777,,777777
+	D[MEM] DEST[Q] NORM $
+		;Q=LAST COLOR,,LAST FONT
+	D[AR] ALU[-D&Q] DEST[COLOR] DEST-A-MEM NORM $
+		;COLOR=LAST COLOR 00000,,000000
+
+;This is the character scanning loop.
+
+;Set up font pointer. Flush nulls.
+VIDSCL:	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[CONST 57.] ALU[D+Q] DEST[MA] NORM $
+		;MA=POGB+57.	read DISPLAY BUFFER POINTER
+	MAPF[NORM-RD] COND[HALF] JUMP[VIDSC1] NORM $
+		;If -HALF
+	D[MEM] MASK[18.] DEST[MA] JUMP[VIDSC2] NORM $
+		;MA=POG PTR	read
+VIDSC1:	D[MEM] ROT[18.] MASK[18.] DEST[MA] NORM $
+		;MA=DISP PTR	read
+VIDSC2:	MAPF[NORM-RD] D[10 + LINE,,BYTEPTR] DEST[ROTR] NORM $
+		;ROTR=LINE,,BYTEPTR
+	D[MEM] ROT[R] MASK[7] DEST[AR]
+		COND[OBUS=0] JUMP[VIDSCN] C550 $
+		;AR=ASCII	if 0, next character
+	D[CONST 48.] ALU[D+Q] DEST[MA] NORM $
+		;MA=POGB+48.	read LAST FONT
+	MAPF[NORM-RD] D[AR] ROT[4] DEST[Q] NORM $
+		;Q=0,,ASCII*16.
+	D[MEM] MASK[18.] ALU[D+Q] DEST[YSIZE-1,,FONTPTR] DEST-A-MEM NORM $
+		;YSIZE-1,,FONTPTR=0,,LAST FONT+ASCII*16.
+
+;Get width and 3*width of character.
+	D[10 + YSIZE-1,,FONTPTR] MASK[18.] DEST[Q] NORM $
+		;Q=FONTPTR
+	D[CONST 15.] ALU[D+Q] DEST[MA] NORM $
+		;MA=FONTPTR+15.		read YSIZE,,XSIZE
+	MAPF[NORM-RD] NORM $
+		;WAIT
+	D[MEM] MASK[18.] DEST[AR Q] NORM $
+		;AR,Q=0,,XSIZE
+	D[AR] ROT[18.] ALU[D+Q] DEST[Q] NORM $
+		;Q=XSIZE,,XSIZE
+	D[AR] ROT[18. + 1] ALU[D+Q] DEST[XSIZE3,,XSIZE] DEST-A-MEM NORM $
+		;XSIZE3,,XSIZE=XSIZE*3,,XSIZE
+
+;Initialize YSIZE-1
+	D[MEM] SPEC[LEFT] DEST[Q] NORM $
+		;Q=YSIZE,,0
+	D[10 + YSIZE-1,,FONTPTR] ALU[DORQ] DEST[Q] NORM $
+		;Q=YSIZE,,FONTPTR
+	D[CONST 1] ROT[18.] ALU[Q-D] DEST[YSIZE-1,,FONTPTR] DEST-A-MEM NORM $
+		;YSIZE-1,,FONTPTR
+
+;Increment position one character width (right or down).
+	D[MEM] SPEC[LEFT] DEST[Q AR] NORM $
+		;AR,Q=YSIZE,,0
+	D[MEM] ROT[18.] SPEC[LEFT] ALU[Q-D]
+		COND[OBUS<0] JUMP[VIDCCS] C600 $
+		;If YSIZE-XSIZE<0, sideways
+
+;Update normal X0,,X1.
+	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[CONST 61.] ALU[D+Q] DEST[MA] NORM $
+		;MA=POGB+61.	read X0,,X1
+	MAPF[NORM-RD] NORM $
+		;WAIT
+	D[MEM] MASK[18.] DEST[Q] NORM $
+		;Q=0,,X1
+	D[10 + XSIZE3,,XSIZE] MASK[18.] ALU[D+Q] DEST[AR] NORM $
+		;AR=0,,X1+XSIZE
+	D[MEM] ROT[18.] SPEC[LEFT] DEST[Q] NORM $
+		;Q=X1,,0
+	D[AR] MASK[18.] ALU[DORQ] DEST[MEMSTO] NORM $
+		;HOLD=X1,,X1+XSIZE	write X0,,X1
+
+;Update normal Y0,,Y1.
+	D[MA] ALU[D+1] DEST[MA] NORM $
+		;MA=POGB+62.	read Y0,,Y1
+	MAPF[NORM-RD] NORM $
+		;WAIT
+	D[MEM] MASK[18.] DEST[Q] $
+		;Q=0,,Y1
+	D[MEM] ROT[18.] SPEC[LEFT] ALU[DORQ] DEST[MEMSTO] JUMP[VIDCCL] NORM $
+		;HOLD=Y1,,Y1	write Y0,,Y1
+
+;Update sideways X0,,X1.
+VIDCCS:	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[CONST 61.] ALU[D+Q] DEST[MA] NORM $
+		;MA=POGB+61.	read X0,,X1
+	MAPF[NORM-RD] NORM $
+		;WAIT
+	D[MEM] MASK[18.] DEST[Q] $
+		;Q=0,,X1
+	D[MEM] ROT[18.] SPEC[LEFT] ALU[DORQ] DEST[MEMSTO] NORM $
+		;HOLD=X1,,X1	write X0,,X1
+
+;Update sidways Y0,,Y1.
+	D[MA] ALU[D+1] DEST[MA] NORM $
+		;MA=POGB+62.	read Y0,,Y1
+	MAPF[NORM-RD] NORM $
+		;WAIT
+	D[MEM] MASK[18.] DEST[Q] NORM $
+		;Q=0,,Y1
+	D[AR] ROT[18.] ALU[Q-D] DEST[AR] NORM $
+		;AR=0,,Y1-YSIZE
+	D[MEM] ROT[18.] SPEC[LEFT] DEST[Q] NORM $
+		;Q=Y1,,0
+	D[AR] MASK[18.] ALU[DORQ] DEST[MEMSTO] NORM $
+		;HOLD=Y1,,Y1-YSIZE	write Y0,,Y1
+
+;Check X limits.
+VIDCCL:	D[MA] ALU[D-1] DEST[MA] NORM $
+		;MA=POGB+61		read X0,,X1
+	MAPF[NORM-RD] NORM $
+		;WAIT
+	D[MEM] SPEC[LEFT] DEST[Q] NORM $
+		;Q=X0,,0
+	D[10 + XMAX,,XMIN] ROT[18.] SPEC[LEFT] ALU[Q-D]
+		COND[OBUS<0] JUMP[VIDCHE] C600 $
+		;if X0,,0-XMIN,,0<0 skip
+	D[10 + XSIZE3,,XSIZE] ROT[18.] SPEC[LEFT] ALU[D+Q] DEST[Q] NORM $
+		;Q=X0,,0+XSIZE,,0
+	D[10 + XMAX,,XMIN] SPEC[LEFT] ALU[D-Q]
+		COND[OBUS<0] JUMP[VIDCHE] C600 $
+		;if XMAX,,0-(X0+XSIZE),,0<0 skip
+
+;Check Y limits.
+	D[MA] ALU[D+1] DEST[MA] NORM $
+		;MA=POGB+62		read Y0,,Y1
+	MAPF[NORM-RD] NORM $
+		;WAIT
+	D[MEM] SPEC[LEFT] DEST[Q] NORM $
+		;Q=Y0,,0
+	D[10 + YMAX,,YMIN] ROT[18.] SPEC[LEFT] ALU[Q-D]
+		COND[OBUS<0] JUMP[VIDCHE] C600 $
+		;if Y0,,0-YMIN,,0<0 skip
+	D[10 + YSIZE-1,,FONTPTR] SPEC[LEFT] ALU[D+Q] DEST[Q] NORM $
+		;Q=Y0,,0+YSIZE-1,,0
+	D[CONST 1] ROT[18.] ALU[D+Q] DEST[Q] NORM $
+		;Q=Y0,,0+YSIZE,,0
+	D[10 + YMAX,,YMIN] SPEC[LEFT] ALU[D-Q]
+		COND[OBUS<0] JUMP[VIDCHE] C600 $
+		;if YMAX,,0-(Y0+YSIZE),,0<0 skip
+
+;This is the scan line loop for characters.
+
+;Put up first word of this line for this character.
+VIDCHL:	D[10 + YSIZE-1,,FONTPTR] MASK[18.] DEST[Q] NORM $
+		;Q=FONTPTR
+	D[10 + YSIZE-1,,FONTPTR] ROT[18.] MASK[18.] ALU[D+Q] DEST[MA] NORM $
+		;MA=FONTPTR+YSIZE-1	read DATA
+	MAPF[NORM-RD] D[CONST 33.] DEST[Q] NORM $
+		;Q=33.
+	D[10 + WORD,,PIXEL3] MASK[18.] ALU[Q-D] DEST[ROTR] NORM $
+		;ROTR=33.-PIXEL3
+	D[10 + WORD,,PIXEL3] MASK[18.] ALU[Q-D] DEST[MASKR] NORM $
+		;MASKR=33.-PIXEL3
+	D[MEM] ROT[R] MASK[R] DEST[HOLD] PUSHJ[VIDPUT] NORM $
+		;HOLD=DATA ROT (33.-PIXEL) MASK (33.-PIXEL)	do it
+
+;Determine if there is another word.
+	MAPF[7] D[10 + WORD,,PIXEL3] MASK[18.] DEST[Q] C800 $
+		;Q=PIXEL3	VWEVID
+	D[10 + XSIZE3,,XSIZE] ROT[18.] MASK[18.] ALU[D+Q] DEST[Q] NORM $
+		;Q=PIXEL3+XSIZE3
+	D[CONST 33.] ALU[D-Q]
+		COND[-OBUS<0] JUMP[VIDCHS] C600 $
+		;If 33.-(PIXEL3+XSIZE3)<0
+
+;If there is a second word, put it up.
+	D[10 + WORD,,PIXEL3] DEST[Q] NORM $
+		;Q=WORD,,PIXEL
+	D[CONST 1] ROT[18.] ALU[Q+D] DEST[WORD,,PIXEL3] DEST-A-MEM NORM $
+		;Temporarally increment WORD
+	D[MA] DEST[MA] NORM $
+		;Read line of data again. (Not enough state.)
+	D[CONST 30.] DEST[Q] NORM $
+		;Q=30.
+	D[10 + WORD,,PIXEL3] MASK[18.] ALU[Q-D] DEST[ROTR] NORM $
+		;ROTR=30.-PIXEL3
+	D[MEM] ROT[R] MASK[33.] DEST[AR] NORM $
+		;AR=DATA ROT (30.-PIXEL3) MASK 33.
+	D[CONST 33.] ROT[1] DEST[Q] NORM $
+		;Q=66.
+	D[10 + WORD,,PIXEL3] MASK[18.] ALU[Q-D] DEST[Q] NORM $
+		;Q=66.-PIXEL3
+	D[10 + XSIZE3,,XSIZE] ROT[18.] MASK[18.] ALU[Q-D] DEST[MASKR] NORM $
+		;MASKR=66.-PIXEL3-XSIZE3
+	D[AR] DEST[Q] NORM $
+		;Q=DATA ROT(30.-PIXEL3) MASK(33.)
+	D[MASK R] ALU[-D&Q] DEST[HOLD] PUSHJ[VIDPUT] NORM $
+		;HOLD=DATA ROT(30.-PIXEL3) MASK(66.-PIXEL3-XSIZE3)
+	MAPF[7] D[10 + WORD,,PIXEL3] DEST[Q] NORM $
+		;Q=WORD,,PIXEL		VWEVID
+	D[CONST 1] ROT[18.] ALU[Q-D] DEST[WORD,,PIXEL3] DEST-A-MEM NORM $
+		;Redecrement WORD
+
+;Check for last scan line of character (also interrupts).
+VIDCHS:	MAPF[7] D[10 + YSIZE-1,,FONTPTR] DEST[Q] C800 $
+		;Q=YSIZE-1,,FONTPTR	VWEVID
+	D[CONST 1] ROT[18.] ALU[Q-D] DEST[YSIZE-1,,FONTPTR] DEST-A-MEM
+		COND[OBUS<0] JUMP[VIDCHE] C600 $
+		;If YSIZE-1<0, done
+	COND[-INTRPT] JUMP[VIDCHL] NORM $
+		;If no interrupt, loop
+	VIDSAV[VIDCHL]
+		;Interrupt
+
+;Increment position one character width (right or down).
+VIDCHE:	D[10 + YSIZE-1,,FONTPTR] MASK[18.] DEST[Q] NORM $
+		;Q=PONTPTR
+	D[CONST 15.] ALU[Q+D] DEST[MA] NORM $
+		;MA=POGB+15.	read YSIZE,,XSIZE
+	MAPF[NORM-RD] NORM $
+		;WAIT
+	D[MEM] SPEC[LEFT] DEST[Q] NORM $
+		;Q=YSIZE,,0
+	D[MEM] ROT[18.] SPEC[LEFT] ALU[Q-D]
+		COND[OBUS<0] JUMP[VIDCE2] C600 $
+		;If YSIZE-XSIZE<0, sideways
+
+	D[10 + XSIZE3,,XSIZE] SPEC[LEFT] DEST[Q] NORM $
+		;Q=XSIZE3,,0
+	D[10 + WORD,,PIXEL3] ROT[18.] SPEC[LEFT] ALU[Q+D] DEST[Q] NORM $
+		;Q=PIXEL3+XSIZE3,,0
+	D[CONST 33.] ROT[18.] ALU[Q-D]
+		COND[OBUS<0] JUMP[VIDCE1] C600 $
+		;If PIXEL3+XSIZE3-33.<0 skip
+	D[CONST 33.] ROT[18.] ALU[Q-D] DEST[Q] NORM $
+		;Q=PIXEL3+XSIZE3-33.,,0
+	ALU[Q+1] DEST[Q] NORM $
+		;Q=PIXEL3+XSIZE3-33.,,1
+VIDCE1:	ALU[Q] DEST[AR] NORM $
+		;AR=NEW PIXEL3,,WORD OFFSET
+	D[10 + WORD,,PIXEL3] SPEC[LEFT] DEST[Q] NORM $
+		;Q=WORD,,0
+	D[AR] ROT[18.] ALU[D+Q] DEST[WORD,,PIXEL3] DEST-A-MEM
+		JUMP[VIDSCN] NORM $
+		;WORD,,PIXEL3=WORD+OFFSET,,NEW PIXEL3
+
+VIDCE2:	D[10 + LINE,,BYTEPTR] DEST[Q] NORM $
+		;Q=LINE,,BYTEPTR
+	D[MEM] SPEC[LEFT] ALU[Q-D] DEST[Q] NORM $
+		;Q=LINE-YSIZE,,BYTEPTR
+	ALU[Q] DEST[LINE,,BYTEPTR] DEST-A-MEM NORM $
+		;LINE-YSIZE,,BYTEPTR
+	
+
+;Increment byte pointer for next character.
+VIDSCN:	D[10 + LINE,,BYTEPTR] DEST[Q] NORM $
+		;Q=LINE,,BYTEPTR
+	D[CONST 7] ALU[Q+D] DEST[AR LINE,,BYTEPTR] DEST-A-MEM NORM $
+		;AR,LINE,,BYTEPTR=LINE,,BYTEPTR+7
+	D[AR] ROT[18.] SPEC[LEFT] DEST[Q] NORM $
+		;Q=BYTEPTR+7,,0
+	D[CONST 36.] ROT[18.] ALU[D-Q]
+		COND[-OBUS<0] JUMP[VIDSCL] C600 $
+		;If 36.,,0-BYTEPTR+7,,0<0
+	JUMP[VIDDON] NORM $
+		;Done
+;Divide by 33. (Efficient till 2048./33.)
+
+;AR=DIVIDEND
+
+VIDD33:	D[AR] ROT[36. - 5] MASK[36. - 5] DEST[Q HOLD] NORM $
+		;Q,HOLD=QUOTIENT=AR/32.
+VID33L:	D[MEM] ROT[5] ALU[D+Q] DEST[Q] NORM $
+		;Q=33*QUOTIENT
+	D[AR] ALU[D-Q] DEST[Q]
+		COND[-OBUS<0] POPJ C600 $
+		;Q=REMAINDER, if < 0
+	D[MEM] ALU[D-1] DEST[Q HOLD] JUMP[VID33L] NORM $
+		;Q,HOLD=QUOTIENT-1	loop
+
+;MEM=QUOTIENT
+;Q=REMAINDER
+;Put up one word of video
+
+;MEM=DATA
+
+VIDPUT:	D[10 + LINE,,BYTEPTR] ROT[18.] MASK[18.] DEST[Q] NORM $
+		;Q=0,,LINE
+	D[10 + YSIZE-1,,FONTPTR] ROT[18.] MASK[18.] ALU[Q-D] DEST[AR] NORM $
+		;AR=0,,LINE-(YSIZE-1)
+	D[AR] ROT[5] DEST[Q] NORM $
+		;Q=0 LINE 00000
+	D[CONST 1] ROT[5] ALU[-D&Q] DEST[Q] NORM $
+		;Q=0 LINE/2 000000
+	D[AR] ROT[36. - 1]
+		COND[-OBUS<0] JUMP[VIDPT1] C550 $
+		;IF LSB[LINE]=1
+	D[CONST 1] ROT[14.] ALU[QORD] DEST[Q] NORM $
+		;Q=ODD[LINE] LINE/2 000000
+VIDPT1:	D[10 + WORD,,PIXEL3] ROT[18.] MASK[6] ALU[QORD] DEST[Q] NORM $
+		;Q=ODD[LINE] LINE/2 WORD (=interlaced address)
+
+	D[CONST 7] ROT[6] ALU[Q+D] DEST[Q] NORM $
+		;Q=ADR+7*64.
+	D[CONST 6] ALU[Q+D] DEST[IOD] START-OUT NORM $
+		;IOD=ADR+7 lines, 6 words
+
+	MAPF[2] D[MEM] MASK[33.] DEST[Q] C800 $
+		;VLDADR Q=DATA
+	D[10 + COLOR] ROT[2] MASK[2]
+		COND[-OBUS=0] PUSHJ[VIDCOL] C800 $
+		;If bit(s) 0 or 1 of color on, "color" the word
+	D[10 + COLOR] ALU[D#Q] DEST[IOD] START-OUT C800 $
+		;IOD=DATA XOR COLOR
+	MAPF[1] START-IN POPJ C800 $
+		;VLDDAT (next line must have MAPF[7] ... C800)
+
+;Make the contents of Q be a colored data word.
+;If <2 make it 0, else make it 4.
+VIDCOL:	ALU[Q] DEST[AR] NORM $
+		;COPY Q
+	D[AR] ROT[1] ALU[DORQ] DEST[Q] NORM $
+		;The 4 bit in each pixel is 1 if either the 4 or 2 bits were 1.
+	D[CONST 33] ALU[-D&Q] DEST[Q] NORM $
+		;Zero the 2 and 1 bits.
+	D[CONST 33] ROT[6] ALU[-D&Q] DEST[Q] NORM $
+		;Zero the 2 and 1 bits.
+	D[CONST 33] ROT[12.] ALU[-D&Q] DEST[Q] NORM $
+		;Zero the 2 and 1 bits.
+	D[CONST 33] ROT[18.] ALU[-D&Q] DEST[Q] NORM $
+		;Zero the 2 and 1 bits.
+	D[CONST 33] ROT[24.] ALU[-D&Q] DEST[Q] NORM $
+		;Zero the 2 and 1 bits.
+	D[CONST 73] ROT[30.] ALU[-D&Q] DEST[Q] POPJ NORM $
+		;Zero the 2 and 1 bits.
+
+;Vector A-MEM:
+
+	PIXEL,,FRACT	= 0
+	INTEN,,FRACT	= 1
+	XMAX,,XMIN	= 2
+	YMAX,,YMIN	= 3
+	DXDY,,FRACT	= 4
+	A3DYDX,,FRACT	= 5
+	OFFSET,,LINE	= 6
+	POG,,POGB	= 7
+;Paint line left
+.DEFINE	VIDLFT[]
+[	D[10 + OFFSET,,LINE] MASK[18.] DEST[Q] NORM $
+		;Q=0,,LINE
+	ALU[Q] DEST[OFFSET,,LINE] DEST-A-MEM NORM $
+		;OFFSET,,LINE=0,,LINE
+
+	PUSHJ[VIDDT1] NORM $
+		;Do it
+
+	MAPF[7] D[10 + INTEN,,FRACT] DEST[Q] C800 $
+		;Q=INTEN,,FRACT		VWEVID
+	D[10 + A3DYDX,,FRACT] ALU[Q-D] DEST[Q] NORM $
+		;Q=INTEN,,FRACT-A3DYDX,,FRACT
+	ALU[Q] DEST[INTEN,,FRACT] DEST-A-MEM NORM $
+		;AMEM[1]=INTEN,,FRACT-A3DYDX,,FRACT
+	D[CONST 4] ROT[15.] ALU[Q-D-1]
+		COND[OBUS<0] JUMP[. + 9] C600 $
+		;If INTEN,,FRACT-0,,377777<0, done.
+
+	D[10 + OFFSET,,LINE] DEST[Q] NORM $
+		;Q=OFFSET,,LINE
+	D[CONST 1] ROT[18.] ALU[Q-D] DEST[OFFSET,,LINE] DEST-A-MEM NORM $
+		;OFFSET-1,,LINE
+
+	COND[-INTRPT] JUMP[. - 7] NORM $
+		;Loop if no interrupt
+	%VIDFOO = (. - 8)	;NOTE: THIS FORCES EVALUATION BEFORE
+	VIDSAV[%VIDFOO]		;	THE MACRO GETS ITS ARGUMENT.
+		;Interrupt
+]
+;Paint line right
+.DEFINE	VIDRGT[]
+[	D[10 + OFFSET,,LINE] MASK[18.] DEST[Q] NORM $
+		;Q=0,,LINE
+	D[CONST 1] ROT[18.] ALU[QORD] DEST[OFFSET,,LINE] DEST-A-MEM NORM $
+		;OFFSET,,LINE=1,,LINE
+
+	PUSHJ[VIDDT1] NORM $
+		;Do it (loop to here)
+
+	MAPF[7] D[10 + INTEN,,FRACT] DEST[Q] C800 $
+		;Q=INTEN,,FRACT		VWEVID
+	D[10 + A3DYDX,,FRACT] ALU[Q-D] DEST[Q] NORM $
+		;Q=INTEN,,FRACT-A3DYDX,,FRACT
+	ALU[Q] DEST[INTEN,,FRACT] DEST-A-MEM NORM $
+		;AMEM[1]=INTEN,,FRACT-A3DYDX,,FRACT
+	D[CONST 4] ROT[15.] ALU[Q-D-1]
+		COND[OBUS<0] JUMP[. + 9] C600 $
+		;If INTEN,,FRACT-0,,377777<0, done.
+
+	D[10 + OFFSET,,LINE] DEST[Q] NORM $
+		;Q=OFFSET,,LINE
+	D[CONST 1] ROT[18.] ALU[Q+D] DEST[OFFSET,,LINE] DEST-A-MEM NORM $
+		;OFFSET+1,,LINE
+
+	COND[-INTRPT] JUMP[. - 7] NORM $
+		;Loop if no interrupt
+	%VIDFOO = (. - 8)	;NOTE: THIS FORCES EVALUATION BEFORE
+	VIDSAV[%VIDFOO]		;	THE MACRO GETS ITS ARGUMENT.
+		;Interrupt
+]
+;Vector Body
+;Extract X field from vector word (extending sign).
+;Shift right 1.
+VIDVCI:	D[CONST 1] ROT[8.] ALU[D-1] DEST[AR] NORM $
+		;AR=377
+	D[10 + INTEN,,FRACT] ROT[10.] MASK[10.] DEST[Q] NORM $
+		;Q=X
+	D[CONST 1] ROT[9.] ALU[D&Q]
+		COND[OBUS=0] JUMP[VIDVC1] C550 $
+		;IF SIGN=1
+	D[AR] ROT[10.] ALU[DORQ] DEST[Q] NORM $
+		;Q=0,,776 X
+VIDVC1:	ALU[Q] DEST[XMAX,,XMIN] DEST-A-MEM NORM $
+		;XMAX,,XMIN=0,,X
+
+;Extract Y field from vector word (extending sign). Note the sign change.
+	D[10 + INTEN,,FRACT] ROT[21.] MASK[10.] ALU[0-D] DEST[AR] NORM $
+		;Q=-Y
+	D[AR] MASK[10.] DEST[Q] NORM $
+		;Q=-Y
+	D[CONST 1] ROT[9.] ALU[D&Q]
+		COND[OBUS=0] JUMP[VIDVC2] C550 $
+		;IF SIGN=1
+	D[CONST 1] ROT[8.] ALU[D-1] DEST[AR] NORM $
+		;AR=377
+	D[AR] ROT[10.] ALU[DORQ] DEST[Q] NORM $
+		;Q=0,,776 Y
+VIDVC2:	ALU[Q] DEST[YMAX,,YMIN] DEST-A-MEM NORM $
+		;YMAX,,YMIN=0,,Y
+
+;Get default color (0=no change).
+	D[10 + INTEN,,FRACT] ROT[25.] MASK[3] DEST[AR]
+		COND[OBUS=0] JUMP[VIDVC3] C550 $
+		;AR=BRT (color)		if=0, no change
+	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[CONST 48.] ALU[D+Q] DEST[MA] NORM $
+		;MA=POGB+48.	read LAST COLOR,,LAST FONT
+	MAPF[NORM-RD] D[AR] ROT[33.] DEST[Q] NORM $
+		;Q=COLOR 00000,,000000
+	D[MEM] MASK[18.] ALU[DORQ] DEST[MEMSTO] NORM $
+		;HOLD=COLOR 00000,,LAST FONT	write LAST COLOR,,LAST FONT
+
+;Get default font (0=no change).
+VIDVC3:	D[10 + INTEN,,FRACT] ROT[28.] MASK[3]
+		COND[OBUS=0] JUMP[VIDVC4] C550 $
+		;if SIZE(FONT)=0, no change
+	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[CONST 48.] ALU[D+Q] DEST[Q MA] NORM $
+		;Q,MA=POGB+48	read LAST COLOR,,LAST FONT
+	MAPF[NORM-RD] NORM $
+		;WAIT
+	D[MEM] SPEC[LEFT] DEST[AR] NORM $
+		;AR=COLOR,,0
+	D[10 + INTEN,,FRACT] ROT[28.] MASK[3] ALU[D+Q] DEST[MA] NORM $
+		;MA=POGB+48.+SIZE
+	MAPF[NORM-RD] D[AR] DEST[Q] NORM $
+		;Q=COLOR,,0
+	D[MEM] MASK[18.] ALU[DORQ] DEST[HOLD] NORM $
+		;HOLD=COLOR,,FONT
+	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[CONST 48.] ALU[D+Q] DEST[MA] STRT-WRT NORM $
+		;Q,MA=POGB+48	write LAST COLOR,,LAST FONT
+
+;Check relative.
+VIDVC4:	MAPF[NORM-RD] D[10 + INTEN,,FRACT] ROT[29.]
+		COND[OBUS<0] JUMP[VIDVC5] C550 $
+		;if relative
+
+;If relative, add previous X coordinate.
+	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[CONST 61.] ALU[D+Q] DEST[MA] NORM $
+		;MA=POGB+61.	read X0,,X1
+	MAPF[NORM-RD] D[10 + XMAX,,XMIN] DEST[Q] NORM $
+		;Q=0,,X
+	D[MEM] MASK[18.] ALU[D+Q] DEST[AR] NORM $
+		;AR=0,,X+X1
+	D[MEM] ROT[18.] SPEC[LEFT] DEST[Q] NORM $
+		;Q=X1,,0
+	D[AR] MASK[18.] ALU[DORQ] DEST[MEMSTO] NORM $
+		;HOLD=X1,,X+X1	write X0,,X1
+
+;If relative, add previous Y coordinate.
+	D[MA] ALU[D+1] DEST[MA] NORM $
+		;MA=POGB+62.	read Y0,,Y1
+	MAPF[NORM-RD] D[10 + YMAX,,YMIN] DEST[Q] NORM $
+		;Q=0,,Y
+	D[MEM] MASK[18.] ALU[D+Q] DEST[AR] NORM $
+		;AR=0,,Y+Y1
+	D[MEM] ROT[18.] SPEC[LEFT] DEST[Q] NORM $
+		;Q=Y1,,0
+	D[AR] MASK[18.] ALU[DORQ] DEST[MEMSTO] JUMP[VIDVC6] NORM $
+		;HOLD=Y1,,Y+Y1	write Y0,,Y1
+
+;If absolute,just copy X
+VIDVC5:	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[CONST 61.] ALU[D+Q] DEST[MA] NORM $
+		;MA=POGB+61.	read X0,,X1
+	MAPF[NORM-RD] D[10 + XMAX,,XMIN] DEST[Q] NORM $
+		;Q=0,,X
+	D[MEM] ROT[18.] SPEC[LEFT] ALU[DORQ] DEST[MEMSTO] NORM $
+		;HOLD=X1,,X	write X0,,X1
+
+;If absolute, just copy Y
+	D[MA] ALU[D+1] DEST[MA] NORM $
+		;MA=POGB+62.	read Y0,,Y1
+	MAPF[NORM-RD] D[10 + YMAX,,YMIN] DEST[Q] NORM $
+		;Q=0,,Y
+	D[MEM] ROT[18.] SPEC[LEFT] ALU[DORQ] DEST[MEMSTO] NORM $
+		;HOLD=Y1,,Y	write Y0,,Y1
+
+;Check type code. If 0, visible vector. (For now, all others invisible.)
+VIDVC6:	D[10 + INTEN,,FRACT] ROT[32.] MASK[2]
+		COND[-OBUS=0] JUMP[VIDDON] C550 $
+		;If T NEQ 0, done
+
+;Check first half done.
+	D[10 + POG,,POGB] MASK[18.] DEST[Q]
+		COND[HALF] JUMP[VIDVCH] NORM $
+		;Q=POGB		If -HALF
+
+;If first half not done, color=modified last color 77777,,777777
+	D[CONST 48.] ALU[Q+D] DEST[MA] NORM $
+		;MA=POGB+48.	read LAST COLOR
+	MAPF[NORM-RD] D[CONST 1] ROT[33.] ALU[D-1] DEST[AR] NORM $
+		;AR=077777,,777777
+	D[MEM] DEST[Q] NORM $
+		;Q=LAST COLOR,,LAST FONT
+	D[MEM] ROT[2] MASK[2]
+		COND[OBUS=0] JUMP[VIDVIM] C550 $
+		;If color>1
+	D[CONST 7] ROT[33.] ALU[DORQ] DEST[Q] NORM $
+		;Q=COLOR 7 (WHITE FROM COLOR)
+VIDVIM:
+.REPEAT VIC2 [
+	D[AR] ALU[DORQ] DEST[IOD] START-OUT NORM $
+		;IOD=MODIFIED LAST COLOR 77777,,777777
+];VIC2
+.REPEAT 1 - VIC2 [
+	D[AR] ALU[DORQ] DEST[HOLD] NORM $
+		;MEM=MODIFIED LAST COLOR 77777,,777777
+	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[CONST 59.] ALU[Q+D] DEST[MA] STRT-WRT NORM $
+		;MA=POGB+59	write <COLOR MASK,,MASK>
+	MAPF[NORM-RD] JUMP[VIDVI0] NORM $
+		;WAIT
+];1-VIC2
+
+;If first half done, color=default color 00000,,000000
+VIDVCH:	D[CONST 48.] ALU[Q+D] DEST[MA] NORM $
+		;MA=POGB+48.	read LAST COLOR
+	MAPF[NORM-RD] D[CONST 1] ROT[33.] ALU[D-1] DEST[AR] NORM $
+		;AR=077777,,777777
+	D[MEM] DEST[Q] NORM $
+		;Q=LAST COLOR,,LAST FONT
+.REPEAT VIC2 [
+	D[AR] ALU[-D&Q] DEST[IOD] START-OUT NORM $
+		;IOD=LAST COLOR 00000,,000000
+];VIC2
+.REPEAT 1 - VIC2 [
+	D[AR] ALU[-D&Q] DEST[HOLD] NORM $
+		;MEM=LAST COLOR 00000,,000000
+	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[CONST 59.] ALU[Q+D] DEST[MA] STRT-WRT NORM $
+		;MA=POGB+59	write <COLOR MASK,,MASK>
+	MAPF[NORM-RD] NORM $
+		;WAIT
+];1-VIC2
+
+;Save X0,,X1 and form XMAX,,XMIN.
+VIDVI0:	MAPF[10] D[10 + POG,,POGB] DEST[Q] C800 $
+		;VLDCOL		Q=POGB
+	D[CONST 61.] ALU[D+Q] DEST[MA] NORM $
+		;MA=POGB+61.	read X0,,X1
+	MAPF[NORM-RD] NORM $
+		;WAIT FOR MEM
+	D[MEM] DEST[Q XMAX,,XMIN] DEST-A-MEM NORM $
+		;Q,XMAX,,XMIN=X0,,X1
+	D[MEM] DEST[DXDY,,FRACT] DEST-A-MEM NORM $
+		;DXDY,,FRACT=X0,,X1	(for use below)
+	D[MEM] ROT[18.] ALU[Q-D]
+		COND[-OBUS<0] JUMP[VIDVI1] C600 $
+		;If X0,,X1-X1,,X0<0
+	D[MEM] ROT[18.] DEST[XMAX,,XMIN] DEST-A-MEM NORM $
+		;XMAX,,XMIN=X1,,X0
+
+;Save Y0,,Y1 and form YMAX,,YMIN.
+VIDVI1:	D[10 + POG,,POGB] DEST[Q] NORM $
+		;Q=POGB
+	D[CONST 62.] ALU[D+Q] DEST[MA] NORM $
+		;MA=POGB+62.	read Y0,,Y1
+	MAPF[NORM-RD] NORM $
+		;WAIT FOR MEM
+	D[MEM] DEST[Q YMAX,,YMIN] DEST-A-MEM NORM $
+		;Q,YMAX,,YMIN=Y0,,Y1
+	D[MEM] DEST[A3DYDX,,FRACT] DEST-A-MEM NORM $
+		;A3DYDX,,FRACT=Y0,,Y1	(for use below)
+	D[MEM] ROT[18.] ALU[Q-D]
+		COND[-OBUS<0] JUMP[VIDVI2] C600 $
+		;If Y0,,Y1-Y1,,Y0<0
+	D[MEM] ROT[18.] DEST[YMAX,,YMIN] DEST-A-MEM NORM $
+		;YMAX,,YMIN=Y1,,Y0
+
+;Form delta X. Check for vertical vectors.
+VIDVI2:	D[10 + DXDY,,FRACT] ROT[18.] SPEC[LEFT] DEST[Q] NORM $
+		;Q=X1,,0
+	D[10 + DXDY,,FRACT] SPEC[LEFT] ALU[Q-D] DEST[Q] NORM $
+		;Q=DX,,0=X1,,0-X0,,0
+	ALU[Q] DEST[DXDY,,FRACT] DEST-A-MEM
+		COND[OBUS=0] JUMP[VIDVRV] C550 $
+		;DXDY,,FRACT=DX,,0 (for use below)
+		;If DX=0, vertical vector
+
+;Form delta Y. Check for horizontal vectors.
+	D[10 + A3DYDX,,FRACT] ROT[18.] SPEC[LEFT] DEST[Q] NORM $
+		;Q=Y1,,0
+	D[10 + A3DYDX,,FRACT] SPEC[LEFT] ALU[Q-D] DEST[Q] NORM $
+		;Q=DY,,0=Y1,,0-Y0,,0
+	ALU[Q] DEST[A3DYDX,,FRACT] DEST-A-MEM
+		COND[OBUS=0] JUMP[VIDHZV] C550 $
+		;A3DYDX,,FRACT=DY,,0 (for use below)
+		;If DY=0, horizontal vector
+
+;Form DXDY and A3DYDX.
+	D[10 + DXDY,,FRACT] DEST[AR] NORM $
+		;AR=DIVIDEND=DX,,0
+	D[10 + A3DYDX,,FRACT] DEST[HOLD] PUSHJ[VIDDIV] NORM $
+		;HOLD=DIVISOR=DY,,0	divide
+	ALU[Q] DEST[AR] NORM $
+		;AR=DX/DY,,FRACT (abs val)
+	D[10 + DXDY,,FRACT] DEST[Q] NORM $
+		;Q=DX
+	D[10 + A3DYDX,,FRACT] ALU[D#Q]
+		COND[-OBUS<0] JUMP[VIDVI3] C550 $
+		;IF DX XOR DY < 0
+	D[AR] ALU[0-D] DEST[AR] NORM $
+		;AR=-DX/DY (correct sign)
+VIDVI3:	D[10 + DXDY,,FRACT] DEST[HOLD] NORM $
+		;HOLD=DIVISOR=DX
+	D[AR] DEST[DXDY,,FRACT] DEST-A-MEM NORM $
+		;DXDY,,FRACT=DX/DY,,FRACT
+	D[10 + A3DYDX,,FRACT] DEST[AR] PUSHJ[VIDDIV] NORM $
+		;AR=DIVIDEND=DY		divide
+	ALU[Q] DEST[AR] NORM $
+		;AR=DY/DX,,FRACT	(abs val)
+	D[AR] ROT[1] ALU[Q+D] DEST[A3DYDX,,FRACT] DEST-A-MEM NORM $
+		;A3DYDX=3*ABS[DY/DX]
+
+;Initialize OFFSET,,LINE.
+	D[10 + YMAX,,YMIN] MASK[18.] DEST[Q] NORM $
+		;Q=0,,YMIN
+	ALU[Q] DEST[OFFSET,,LINE] DEST-A-MEM NORM $
+		;OFFSET,,LINE=0,,YMIN
+
+;Initialize PIXEL,,FRACT and form boundary limits from POG windows.
+	D[10 + XMAX,,XMIN] ROT[18.] SPEC[LEFT] DEST[Q] NORM $
+		;Q=XMIN,,0
+	D[10 + DXDY,,FRACT]
+		COND[-OBUS<0] JUMP[VIDVI4] C550 $
+		;If slope negative
+	D[10 + XMAX,,XMIN] SPEC[LEFT] DEST[Q] NORM $
+		;Q=XMAX,,0
+VIDVI4:	ALU[Q] DEST[PIXEL,,FRACT] DEST-A-MEM PUSHJ[VIDVLM] NORM $
+		;PIXEL,,FRACT=Q		form boundary limits
+
+;Check to see what side of 45 degrees vector's slope is.
+	D[10 + A3DYDX,,FRACT] DEST[Q] NORM $
+		;Q=A3DYDX,,FRACT
+	D[CONST 3] ROT[18.] ALU[Q-D]
+		COND[OBUS<0] JUMP[VIDLL2] C600 $
+		;If A3DYDX,,FRACT-3,,0<0, other case
+
+;This is the loop for painting 1 line of vectors whose slope is between
+;45 degrees (inclusive) and vertical (exclusive).
+
+;Check for above window.
+VIDLL1:	D[10 + YMAX,,YMIN] ROT[18.] SPEC[LEFT] DEST[Q] NORM $
+		;Q=YMIN,,0
+	D[10 + OFFSET,,LINE] ROT[18.] SPEC[LEFT] ALU[D-Q]
+		COND[OBUS<0] JUMP[VIDSL1] C600 $
+		;If LINE,,0-YMIN,,0<0, skip line
+;Paint left.
+	D[10 + PIXEL,,FRACT] MASK[18.] ALU[D] DEST[Q] NORM $
+		;Q=0,,FRACT(PIXEL)
+	D[CONST 1] ROT[18.] ALU[D-Q] DEST[Q AR] NORM $
+		;Q,AR=1,,0-0,,FRACT(PIXEL)
+	D[AR] ROT[1] ALU[D+Q] DEST[INTEN,,FRACT] DEST-A-MEM NORM $
+		;INTEN,,FRACT=3*(1,,0-0,,FRACT(PIXEL))
+
+	VIDLFT
+
+;Paint right.
+	D[10 + PIXEL,,FRACT] MASK[18.] DEST[Q AR] NORM $
+		;Q=0,,FRACT(PIXEL)
+	D[AR] ROT[1] ALU[D+Q] DEST[INTEN,,FRACT] DEST-A-MEM NORM $
+		;INTEN,,FRACT=3*0,,FRACT(PIXEL)
+
+	VIDRGT
+
+;Reset offset and increment line.
+VIDSL1:	D[10 + OFFSET,,LINE] MASK[18.] DEST[Q] NORM $
+		;Q=0,,LINE
+	ALU[Q+1] DEST[OFFSET,,LINE] DEST-A-MEM NORM $
+		;OFFSET,,LINE=0,,LINE+1
+
+;Check for below window.
+	D[10 + OFFSET,,LINE] ROT[18.] SPEC[LEFT] DEST[Q] NORM $
+		;Q=LINE,,0
+	D[10 + YMAX,,YMIN] SPEC[LEFT] ALU[D-Q]
+		COND[OBUS<0] JUMP[VIDVEN] C600 $
+		;If YMAX,,0-LINE,,0<0, terminate
+
+;Increment X position.
+	D[10 + PIXEL,,FRACT] DEST[Q] NORM $
+		;Q=PIXEL,,FRACT
+	D[10 + DXDY,,FRACT] ALU[Q+D] DEST[Q] NORM $
+		;Q=PIXEL,,FRACT+DXDY,,FRACT
+	ALU[Q] DEST[PIXEL,,FRACT] DEST-A-MEM JUMP[VIDLL1] NORM $
+		;PIXEL,,FRACT=PIXEL,,FRACT+DXDY,,FRACT	loop
+
+;This is the loop for vectors whose slope is between 45 degrees (exclusive)
+;and horizontal (exclusive).
+
+;Check for above window.
+VIDLL2:	D[10 + YMAX,,YMIN] ROT[18.] SPEC[LEFT] DEST[Q] NORM $
+		;Q=YMIN,,0
+	D[10 + OFFSET,,LINE] ROT[18.] SPEC[LEFT] ALU[D-Q]
+		COND[OBUS<0] JUMP[VIDSL2] C600 $
+		;If LINE,,0-YMIN,,0<0, skip line
+
+;Paint left.
+	D[10 + PIXEL,,FRACT] ROT[36. - 2] MASK[16.] DEST[Q]
+		PUSHJ[VIDMUL] NORM $
+		;Q=MULTIPLIER(0,,00 16 BIT)	multiply
+	D[CONST 3] ROT[18.] ALU[D-Q] DEST[INTEN,,FRACT] DEST-A-MEM NORM $
+		;INTEN,,FRACT=3,,0-0,,DELTA*A3DYDX,,FRACT
+
+	VIDLFT
+
+;Paint right.
+	D[10 + PIXEL,,FRACT] ROT[36. - 2] MASK[16.] DEST[Q] NORM $
+		;Q=MULTIPLIER(0,,00 16 BIT)
+	D[CONST 1] ROT[16.] ALU[D-Q-1] DEST[Q] PUSHJ[VIDMUL] NORM $
+		;Q=1-MULTIPLIER (0,,177777-16 BIT)	multiply
+	D[CONST 3] ROT[18.] ALU[D-Q] DEST[INTEN,,FRACT] DEST-A-MEM NORM $
+		;INTEN,,FRACT=3,,0-0,,DELTA*A3DYDX,,FRACT
+
+	VIDRGT
+
+;Increment line and reset offset.
+VIDSL2:	D[10 + OFFSET,,LINE] MASK[18.] DEST[Q] NORM $
+		;Q=0,,LINE
+	ALU[Q+1] DEST[OFFSET,,LINE] DEST-A-MEM NORM $
+		;OFFSET,,LINE=0,,LINE+1
+
+;Check for below window.
+	D[10 + OFFSET,,LINE] ROT[18.] SPEC[LEFT] DEST[Q] NORM $
+		;Q=LINE,,0
+	D[10 + YMAX,,YMIN] SPEC[LEFT] ALU[D-Q]
+		COND[OBUS<0] JUMP[VIDVEN] C600 $
+		;If YMAX,,0-LINE,,0<0, terminate
+
+;Increment X position.
+	D[10 + PIXEL,,FRACT] DEST[Q] NORM $
+		;Q=PIXEL,,FRACT
+	D[10 + DXDY,,FRACT] ALU[Q+D] DEST[Q] NORM $
+		;Q=PIXEL,,FRACT+DXDY,,FRACT
+	ALU[Q] DEST[PIXEL,,FRACT] DEST-A-MEM JUMP[VIDLL2] NORM $
+		;PIXEL,,FRACT=PIXEL,,FRACT+DXDY,,FRACT	loop
+;Vertical Vectors
+VIDVRV:	PUSHJ[VIDVLM] NORM $
+		;Form boundary limits
+
+	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[CONST 61.] ALU[D+Q] DEST[MA] NORM $
+		;MA=POGB+61.	read X0,,X1
+	MAPF[NORM-RD] D[10 + XMAX,,XMIN] ROT[18.] SPEC[LEFT] DEST[Q AR] NORM $
+		;Q,AR=XMIN,,0	(AR for use below)
+	D[MEM] SPEC[LEFT] ALU[D-Q]
+		COND[OBUS<0] JUMP[VIDDON] C600 $
+		;If X0,,0-XMIN,,0<0, main loop
+	D[10 + XMAX,,XMIN] SPEC[LEFT] DEST[Q] NORM $
+		;Q=XMAX,,0
+	D[MEM] SPEC[LEFT] ALU[Q-D]
+		COND[OBUS<0] JUMP[VIDDON] C600 $
+		;If XMAX,,0-X0,,0<0, main loop
+
+	D[AR] DEST[PIXEL,,FRACT] DEST-A-MEM NORM $
+		;PIXEL,,FRACT=XMIN,,0
+	D[10 + YMAX,,YMIN] MASK[18.] DEST[Q] NORM $
+		;Q=0,,YMIN
+	ALU[Q] DEST[OFFSET,,LINE] DEST-A-MEM NORM $
+		;OFFSET,,LINE=0,,YMIN
+	D[CONST 3] ROT[18.] DEST[INTEN,,FRACT] DEST-A-MEM NORM $
+		;INTEN,,FRACT=3,,0
+
+VIDVRL:	D[10 + YMAX,,YMIN] SPEC[LEFT] DEST[Q] NORM $
+		;Q=YMAX,,0
+	D[10 + OFFSET,,LINE] ROT[18.] SPEC[LEFT] ALU[Q-D]
+		COND[OBUS<0] JUMP[VIDVEN] C600 $
+		;If YMAX,,0-LINE,,0<0 terminate
+
+	PUSHJ[VIDDOT] NORM $
+		;Do one pixel
+
+	MAPF[7] D[10 + OFFSET,,LINE] MASK[18.] DEST[Q] C800 $
+		;Q=0,,LINE	VWEVID
+	ALU[Q+1] DEST[OFFSET,,LINE] DEST-A-MEM
+		COND[-INTRPT] JUMP[VIDVRL] NORM $
+		;OFFSET,,LINE=0,,LINE+1		loop if no interrupt
+	VIDSAV[VIDVRL]
+		;Interrupt
+;Horizontal Vectors
+VIDHZV:	PUSHJ[VIDVLM] NORM $
+		;Form boundary limits
+
+	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[CONST 62.] ALU[D+Q] DEST[MA] NORM $
+		;MA=POGB+62.	read Y0,,Y1
+	MAPF[NORM-RD] D[10 + YMAX,,YMIN] ROT[18.] SPEC[LEFT] DEST[Q AR] NORM $
+		;Q,AR=YMIN,,0 (AR for use below)
+	D[MEM] SPEC[LEFT] ALU[D-Q]
+		COND[OBUS<0] JUMP[VIDDON] C600 $
+		;IF Y0,,0-YMIN,,0<0, main loop
+	D[10 + YMAX,,YMIN] SPEC[LEFT] DEST[Q] NORM $
+		;Q=YMAX,,0
+	D[MEM] SPEC[LEFT] ALU[Q-D]
+		COND[OBUS<0] JUMP[VIDDON] C600 $
+		;IF YMAX,,0-Y0,,0<0, main loop
+
+	D[AR] ROT[18.] DEST[OFFSET,,LINE] DEST-A-MEM NORM $
+		;OFFSET,,LINE=0,,YMIN
+	D[10 + XMAX,,XMIN] ROT[18.] SPEC[LEFT] DEST[Q] NORM $
+		;Q=XMIN,,0
+	ALU[Q] DEST[PIXEL,,FRACT] DEST-A-MEM NORM $
+		;PIXEL,,FRACT=XMIN,,0
+	D[CONST 3] ROT[18.] DEST[INTEN,,FRACT] DEST-A-MEM NORM $
+		;INTEN,,FRACT=3,,0
+
+VIDHZL:	D[10 + XMAX,,XMIN] SPEC[LEFT] DEST[Q] NORM $
+		;Q=XMAX,,0
+	D[10 + PIXEL,,FRACT] SPEC[LEFT] ALU[Q-D]
+		COND[OBUS<0] JUMP[VIDVEN] C600 $
+		;If XMAX,,0-PIXEL,,0<0, terminate
+
+	PUSHJ[VIDDOT] NORM $
+		;Do one pixel
+
+	MAPF[7] D[10 + PIXEL,,FRACT] DEST[Q] C800 $
+		;Q=PIXEL,,FRACT		VWEVID
+	D[CONST 1] ROT[18.] ALU[Q+D] DEST[PIXEL,,FRACT] DEST-A-MEM
+		COND[-INTRPT] JUMP[VIDHZL] NORM $
+		;PIXEL,,FRACT=PIXEL+1,,FRACT	loop if no interrupt
+	VIDSAV[VIDHZL]
+		;Interrupt
+;Vector endpoint cleanup (subtract away first point if visible)
+VIDVEN:	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[CONST 62.] ALU[Q+D] DEST[MA] NORM $
+		;MA=POGB+62.	read Y0,,Y1
+	MAPF[NORM-RD] D[10 + YMAX,,YMIN] ROT[18.] SPEC[LEFT] DEST[Q] NORM $
+		;Q=YMIN,,0
+	D[MEM] SPEC[LEFT] ALU[D-Q]
+		COND[OBUS<0] JUMP[VIDDON] C600 $
+		;If Y0,,0-YMIN,,0<0, main loop
+	D[10 + YMAX,,YMIN] SPEC[LEFT] DEST[Q] NORM $
+		;Q=YMAX,,0
+	D[MEM] SPEC[LEFT] ALU[Q-D]
+		COND[OBUS<0] JUMP[VIDDON] C600 $
+		;If YMAX,,0-Y0,,0<0, main loop
+	D[MEM] SPEC[LEFT] DEST[AR] NORM $
+		;AR=Y0,,0	(for use below)
+
+	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[CONST 61.] ALU[Q+D] DEST[MA] NORM $
+		;MA=POGB+62.	read X0,,X1
+	MAPF[NORM-RD] D[10 + XMAX,,XMIN] ROT[18.] SPEC[LEFT] DEST[Q] NORM $
+		;Q=XMIN,,0
+	D[MEM] SPEC[LEFT] ALU[D-Q]
+		COND[OBUS<0] JUMP[VIDDON] C600 $
+		;If X0,,0-XMIN,,0<0, main loop
+	D[10 + XMAX,,XMIN] SPEC[LEFT] DEST[Q] NORM $
+		;Q=XMAX,,0
+	D[MEM] SPEC[LEFT] ALU[Q-D]
+		COND[OBUS<0] JUMP[VIDDON] C600 $
+		;If XMAX,,0-X0,,0<0, main loop
+
+	D[MEM] SPEC[LEFT] DEST[Q] NORM $
+		;Q=X0,,0
+	ALU[Q] DEST[PIXEL,,FRACT] DEST-A-MEM NORM $
+		;PIXEL,,FRACT=X0,,0
+	D[AR] ROT[18.] MASK[18.] DEST[OFFSET,,LINE] DEST-A-MEM NORM $
+		;OFFSET,,LINE=0,,Y0
+	D[CONST 5] ROT[18.] DEST[INTEN,,FRACT] DEST-A-MEM PUSHJ[VIDDOT] NORM $
+		;INTEN,,FRACT=5,,0	Do it
+	MAPF[7] JUMP[VIDDON] C800 $
+		;VWEVID		main loop
+;Output one pixel
+VIDDOT:	D[10 + OFFSET,,LINE] MASK[18.] DEST[Q] NORM $
+		;Q=0,,LINE
+	ALU[Q] DEST[OFFSET,,LINE] DEST-A-MEM JUMP[VIDDT2] NORM $
+		;OFFSET,,LINE=0,,LINE
+
+;Enter here for limit check  
+VIDDT1:	D[10 + PIXEL,,FRACT] SPEC[LEFT] DEST[Q] NORM $
+		;Q=PIXEL,,0
+	D[10 + OFFSET,,LINE] SPEC[LEFT] ALU[Q+D] DEST[Q AR] NORM $
+		;AR,Q=PIXEL,,0+OFFSET,,0
+	D[10 + XMAX,,XMIN] ROT[18.] SPEC[LEFT] ALU[Q-D]
+		COND[OBUS<0] POPJ C600 $
+		;IF PIXEL,,0-XMIN,,0<0, RETURN
+	D[10 + XMAX,,XMIN] SPEC[LEFT] ALU[D-Q]
+		COND[OBUS<0] POPJ C600 $
+		;IF XMAX,,0-PIXEL,,0<0, RETURN
+.REPEAT VIC2 [
+VIDDT2:	D[AR] ROT[18.] MASK[18.] DEST[Q] NORM $
+		;Q=0,,PIXEL
+	D[10 + OFFSET,,LINE] ROT[18.] SPEC[LEFT] ALU[DORQ] DEST[Q] NORM $
+		;Q=LINE,,PIXEL
+	D[10 + INTEN,,FRACT] ROT[18.] MASK[3] DEST[AR] NORM $
+		;AR=0,,INTEN
+	D[AR] ROT[33.] ALU[QORD] DEST[IOD] START-OUT NORM $
+		;IOD=INTEN,LINE,,PIXEL
+	MAPF[13] START-IN C800 $
+		;VLDPIX
+	MAPF[2] START-IN C800 $
+		;VSYADR
+	MAPF[1] START-IN POPJ C800 $
+		;VSYDAT return (Note: Next instructon must have MAPF[7])
+];VIC2
+.REPEAT 1 - VIC2 [
+VIDDT2:	D[10 + OFFSET,,LINE] MASK[18.] DEST[Q] NORM $
+		;Q=0,,LINE
+	D[CONST 4] ROT[6] ALU[Q+D] DEST[AR] NORM $
+		;AR=0,,LINE+256.
+	D[AR] ROT[5] MASK[14.] DEST[Q] NORM $
+		;Q=0 LINE 00000
+	D[CONST 1] ROT[5] ALU[-D&Q] DEST[Q] NORM $
+		;Q=0 LINE/2 000000
+	D[AR] ROT[36. - 1]
+		COND[-OBUS<0] JUMP[VIDDT3] C550 $
+		;IF LSB[LINE]=1
+	D[CONST 1] ROT[14.] ALU[QORD] DEST[Q] NORM $
+		;Q=ODD[LINE] LINE/2 000000
+VIDDT3:	ALU[Q] DEST[HOLD] NORM $
+		;MEM=INTERLACED LINE 000000
+	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[CONST 60.] ALU[Q+D] DEST[MA] STRT-WRT NORM $
+		;MA=POGB+60.	write INTERLACED LINE 000000 (temp)
+
+	MAPF[NORM-RD] D[CONST 5] ROT[6] ALU[D-1] DEST[Q] NORM $
+		;Q=319.
+	D[10 + PIXEL,,FRACT] ROT[18.] MASK[18.] ALU[Q+D] DEST[Q] NORM $
+		;Q=0,,PIXEL+319.
+	D[10 + OFFSET,,LINE] ROT[18.] MASK[18.] ALU[Q+D] DEST[AR] NORM $
+		;Q=0,,PIXEL+0,,OFFSET+319.
+	D[AR] MASK[18.] DEST[Q AR] NORM $
+		;Q,AR=0,,PIXEL+OFFSET+319.
+	D[AR] ROT[1] ALU[D+Q] DEST[AR] PUSHJ[VIDD33] NORM $
+		;AR=3*corrected PIXEL	divide by 33
+
+	D[MEM] ROT[18.] SPEC[LEFT] ALU[DORQ] DEST[AR] NORM $
+		;AR=QUOTIENT,,REMAINDER=WORD,,PIXEL
+	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[CONST 60.] ALU[Q+D] DEST[MA] NORM $
+		;MA=POGB+60	read INTERLACED LINE 000000
+	MAPF[NORM-RD] D[AR] ROT[18.] MASK[18.] DEST[Q] NORM $
+		;Q=WORD
+	D[MEM] ALU[QORD] DEST[Q] NORM $
+		;Q=INTERLACED LINE 000000 + WORD (=interlaced address)
+
+	D[CONST 7] ROT[6] ALU[Q+D] DEST[Q] NORM $
+		;Q=ADR+7*64.
+	D[CONST 6] ALU[Q+D] DEST[IOD] START-OUT NORM $
+		;IOD=ADR+7 lines, 6 words
+
+	MAPF[2] D[AR] MASK[18.] DEST[Q] C800 $
+		;VLDADR		Q=REMAINDER
+	D[CONST 30.] ALU[D-Q] DEST[ROTR] NORM $
+		;ROTR=30-REMAINDER
+	D[10 + INTEN,,FRACT] DEST[Q] NORM $
+		;Q=INTEN,,FRACT
+	D[CONST 4] ROT[15.] ALU[Q+D] DEST[AR] NORM $
+		;AR=INTEN,,FRACT+0,,400000
+	D[AR] ROT[18.] MASK[3] DEST[AR] NORM $
+		;AR=0,,INTEN
+	D[AR] ROT[R] DEST[AR] NORM $
+		;AR=DATA correctly shifted
+	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[CONST 59.] ALU[Q+D] DEST[MA] NORM $
+		;MA=POGB+59.	read COLOR MASK,,MASK
+	MAPF[NORM-RD] D[AR] DEST[Q] NORM $
+		;Q=DATA
+	D[MEM] ROT[2] MASK[2]
+		COND[-OBUS=0] PUSHJ[VIDCOL] C550 $
+		;If bit(s) 0 or 1 of color on, "color" the word
+	D[MEM] ALU[D#Q] DEST[IOD] START-OUT NORM $
+		;IOD=DATA XOR COLOR
+	MAPF[1] START-IN POPJ C800 $
+		;VLDDAT (next line must have MAPF[7] ... C800)
+];1-VIC2
+;Compute Limits
+VIDVLM:	D[10 + POG,,POGB] MASK[18.] DEST[Q] NORM $
+		;Q=POGB
+	D[10 + POG,,POGB] ROT[18.] MASK[4] ALU[Q+D] DEST[Q] NORM $
+		;Q=POGB+POG
+	D[CONST 16.] ALU[Q+D] DEST[MA] NORM $
+		;MA=POGB+16.+POG	read POG XMAX,,XMIN
+
+	MAPF[NORM-RD] D[10 + XMAX,,XMIN] ROT[18.] SPEC[LEFT] DEST[Q] NORM $
+		;Q=XMIN,,0
+	D[MEM] ROT[18.] SPEC[LEFT] ALU[Q-D]
+		COND[-OBUS<0] JUMP[VIDVL1] C600 $
+		;If XMIN,,0-POGXMIN,,0<0
+	D[10 + XMAX,,XMIN] SPEC[LEFT] DEST[Q] NORM $
+		;Q=XMAX,,0
+	D[MEM] MASK[18.] ALU[DORQ] DEST[XMAX,,XMIN] DEST-A-MEM NORM $
+		;XMAX,,XMIN=XMAX,,POGXMIN
+
+VIDVL1:	D[10 + XMAX,,XMIN] SPEC[LEFT] DEST[Q] NORM $
+		;Q=XMAX,,0
+	D[MEM] SPEC[LEFT] ALU[D-Q]
+		COND[-OBUS<0] JUMP[VIDVL2] C600 $
+		;If POGXMAX,,0-XMAX,,0<0
+	D[10 + XMAX,,XMIN] MASK[18.] DEST[Q] NORM $
+		;Q=0,,XMIN
+	D[MEM] SPEC[LEFT] ALU[DORQ] DEST[Q] NORM $
+		;Q=POGXMAX,,XMIN
+	ALU[Q] DEST[XMAX,,XMIN] DEST-A-MEM NORM $
+		;XMAX,,XMIN=POGXMAX,,XMIN
+
+VIDVL2:	D[MA] DEST[Q] NORM $
+		;Q=MA
+	D[CONST 16.] ALU[Q+D] DEST[MA] NORM $
+		;MA=MA+16.	read POG YMAX,,YMIN
+
+	MAPF[NORM-RD] D[10 + YMAX,,YMIN] ROT[18.] SPEC[LEFT] DEST[Q] NORM $
+		;Q=YMIN,,0
+	D[MEM] ROT[18.] SPEC[LEFT] ALU[Q-D]
+		COND[-OBUS<0] JUMP[VIDVL3] C600 $
+		;If YMIN,,0-POGYMIN,,0<0
+	D[10 + YMAX,,YMIN] SPEC[LEFT] DEST[Q] NORM $
+		;Q=YMAX,,0
+	D[MEM] MASK[18.] ALU[DORQ] DEST[YMAX,,YMIN] DEST-A-MEM NORM $
+		;YMAX,,YMIN=YMAX,,POGYMIN
+
+VIDVL3:	D[10 + YMAX,,YMIN] SPEC[LEFT] DEST[Q] NORM $
+		;Q=YMAX,,0
+	D[MEM] SPEC[LEFT] ALU[D-Q]
+		COND[-OBUS<0] POPJ C600 $
+		;If POGYMAX,,0-YMAX,,0<0
+	D[10 + YMAX,,YMIN] MASK[18.] DEST[Q] NORM $
+		;Q=0,,YMIN
+	D[MEM] SPEC[LEFT] ALU[DORQ] DEST[Q] NORM $
+		;Q=POGYMAX,,YMIN
+	ALU[Q] DEST[YMAX,,YMIN] DEST-A-MEM POPJ NORM $
+		;YMAX,,YMIN=POGYMAX,,YMIN
+;Multiply
+;A3DYDX,,FRACT=MULTIPLICAND(2 BIT,,16 BIT 00)	positive only
+;Q=MULTIPLIER(0,,00 16 BIT)			positive only
+VIDMUL:	D[10 + A3DYDX,,FRACT] ROT[15.] DEST[AR] NORM $
+		;AR=MULTIPLICAND(0 17 BIT,,1 BIT 00000000000000000)
+	ACSEL[AC] ALU[0] DEST[O_AC HOLD] NORM $
+		;HOLD=AC for safe keeping	AC=0
+;AR=MULTIPLICAND(0 17 BIT,,1 BIT 00000000000000000)
+;Q=MULTIPLIER(0,,00 16 BIT)
+;MEM=AC storage
+	D[CONST 15.] LLOAD NORM $
+		;Loop 16 times
+	D[AR] ACSEL[AC] ALU[MULAC+D] DEST[D4] MASK[3] LOOP[.] NORM $
+		;Add AR to AC depending on the low order bit of Q.
+		;Shift AC,,Q right. High order bit of AC=OVR XOR -IOB<0
+;AC=PRODUCT(0 17 BIT,,18 BIT)
+	D[MEM] ACSEL[AC] DEST[O_AC AR] NORM $
+		;AC=AC storage, AR=PRODUCT(0 17 BIT,,18 BIT)
+	D[AR] ROT[36. - 15.] MASK[20.] DEST[Q] POPJ NORM $
+		;Q=PRODUCT(2 BIT,,18 BIT)	return
+;Q=PRODUCT(2 BIT,,18 BIT)
+;Divide
+;AR=DIVIDEND,,0
+;MEM=DIVISOR,,0
+VIDDIV:	D[AR]	COND[-OBUS<0] JUMP[VIDDV1] C550 $
+		;If AR<0
+	D[AR] ALU[0-D] DEST[AR] NORM $
+		;ABS[AR]
+VIDDV1:	D[AR] ROT[18.] ACSEL[AC] DEST[O_AC AR] NORM $
+		;AR LSH -18. <-> AC
+	ALU[0] DEST[Q] NORM $
+		;Q=0
+	D[MEM]	COND[-OBUS<0] JUMP[VIDDV2] C550 $
+		;If MEM<0
+	D[MEM] ALU[0-D] DEST[HOLD] JUMP[VIDDV2] NORM $
+		;ABS[MEM]
+
+: (. + 3) - (. \ 4)
+		;.QUAD-1
+VIDDV2:	D[CONST 36.] LLOAD NORM $
+		;Loop 37 times
+
+VIDDVL:	D[MEM] ALU[DIVAC-D] ACSEL[AC] DEST[D6] MASK[3]
+		COND[OBUS<0] SLOOP[VIDDVL] C600 $
+		;Loop here if remainder positive
+	D[AR] ACSEL[AC] ALU[D] DEST[O_AC AR] POPJ NORM $
+		;Swap AR <-> AC and return
+	D[MEM] ALU[DIVAC+D] ACSEL[AC] DEST[D6] MASK[3]
+		COND[OBUS<0] SLOOP[VIDDVL] C600 $
+		;Loop here if remainder positive
+	D[AR] ACSEL[AC] DEST[O_AC AR] POPJ NORM $
+		;Swap AR <-> AC and return
+;Q=QUOTIENT,,FRACT
+
+.REPEAT XUCODE [
+	.USE[OTHER]	;If 8K u-mem present, return to low memory.
+]

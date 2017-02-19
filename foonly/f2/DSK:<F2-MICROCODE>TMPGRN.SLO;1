@@ -1,0 +1,109 @@
+;----------------------------------------------------------------------;
+;								       ;
+;   GRN - Temporary Grinnel Interface				       ;
+;								       ;
+;----------------------------------------------------------------------;
+GRN-UDEV	= PAN-UDEV	;uDevice address
+
+;MAPF fields
+GRN-STATUS	= 5	;Read status register
+	;200	G INT RQ	(= G INT ENB  G INT REQ)
+	;100	FIFO BSY	FIFO input register ready
+	;40	GWBSY		Grinnell is busy
+	;20	G INT REQ	FIFO seems empty
+	;10	G INT ENB	Micro interrupt enable
+GRN-CONTROL	= 5	;Set control
+	;10	G INT ENB	Micro interrupt enable
+GRN-DATA	= 6	;Send Data
+
+;A-MEM usage
+GRN-DISP	= 4	;IOT dispatch in LH, RH unused
+GRN-PICHN	= 5	;PI channel for Grinnell (not used, just saved for now)
+
+	.PAIR
+	D[PC] ROT[6 + 1] MASK[1] COND[OBUS=0] JUMP[MUUO] $
+		;Trap if User and not IOT-USER
+GRNIOT:	D[IR] ROT[12. + 1 + 1] MASK[4] DEST[Q] NORM $
+		;Extract IOT decode * 2.  Note we can do this because the
+		;machine has already done indexing/indirection and bits
+		;13:17 are guaranteed zero
+	D[10 + GRN-DISP] ROT[18.] MASK[16.] ALU[D+Q] SDISP CYLEN[DISP] $
+		;Dispatch of type of IOT
+
+	;Normal IOT dispatch for Grinnell
+GRN-DISPATCH:
+;BLKI XXX, - Not implemented
+	JUMP[MUUO] $
+	NOP $
+;DATAI XXX,
+	JUMP[MUUO] $
+	NOP $
+;BLKO XXX, - Not implemented
+	JUMP[MUUO] $
+	NOP $
+;DATAO XXX,
+	FIXM1 $
+	D[MEM] DEST[IOD] SPEC[IOB-OUT] JUMP[GRNDTO] $
+		;Send data blindly to Grinnell
+		;(Continued below, two microinstructions' worth)
+;CONO XXX,
+	D[IR] DEST[IOD] SPEC[IOB-OUT] NORM $
+		;Remember PI channel and start setting micro interrupt enable
+		;bit.
+	MAPF[GRN-CONTROL] CYLEN[IOB-OUT]
+			D[IR] MASK[4] DEST[GRN-PICHN] DEST-A-MEM JUMP[MAIN] $
+		;Finish setting micro-interrupt enable bit and also save it
+		;away
+;CONI XXX,
+	SPEC[IOB-IN] PUSHJ[GRNSTS] NORM $
+		;Start reading status
+	MAPF[GRN-STATUS] CYLEN[IOB-IN] ALU[Q] DEST[MEMSTO]
+			COND[-MA-AC] LBJUMP[MSMAIN] $
+		;Finish reading status from Grinell interface.
+		;Start store and let MSMAIN finish it.
+;CONSZ XXX,
+	SPEC[IOB-IN] PUSHJ[GRNSTS] NORM $
+		;Start reading status
+	JUMP[XXCONSZ] NORM $
+		;Go do generalized CONSZ.
+;CONSO XXX,
+	SPEC[IOB-IN] PUSHJ[GRNSTS] NORM $
+		;Start reading status
+	JUMP[XXCONSO] NORM $
+		;Go do generalized CONSO.
+
+;Get status from Grinnell
+GRNSTS:	MAPF[GRN-STATUS] CYLEN[IOB-IN] D[IOD] DEST[Q] $
+		;Finish reading hardware status
+	D[CONST 17] ALU[-D&Q] DEST[Q] SHORT $
+		;Remove old PI channel and interrupt enable
+	D[10 + GRN-PICHN] ALU[DORQ] DEST[Q] POPJ NORM $
+		;Put in PI channel and firmware interrupt enable
+
+;Finish writing to Grinnell and start next instruction.
+GRNDTO:	MAPF[GRN-DATA] CYLEN[IOB-OUT] SPEC[MA_PC] DEST[MA] JUMP[MAIN1] $
+
+;Grinnell interrupt. Pass to system, if enabled.  Otherwise, ignore
+GRNINT:	SPEC[IOB-IN] SHORT $
+		;Fetch status
+	MAPF[GRN-STATUS] CYLEN[IOB-IN] D[IOD] ROT[35. - 7] DEST[Q] $
+		;Get interrupt request bit
+	ALU[Q] COND[OBUS=0] JUMP[.] NORM $
+		;Interrupt without a cause.
+	ALU[0] DEST[IOD] SPEC[IOB-OUT] SHORT $
+		;Clear micro-interrupt enable
+	MAPF[GRN-CONTROL] CYLEN[IOB-OUT]
+		D[10 + GRN-PICHN] MASK[3] DEST[AR] COND[-OBUS=0] JUMP[PIGEN] $
+		;Take interrupt, if enabled.
+	DEST[CLR-DEV-FROM-INTR MA] SPEC[MA_PC] JUMP[MAIN1] NORM $
+		;Dismiss interrupt
+
+;Reset Grinnell, Set dispatch addresses
+GRNRST:	ALU[0] DEST[GRN-PICHN] DEST-A-MEM SHORT $
+		;No PI channel yet.
+	D[CONST (GRN-DISPATCH / 100)] ROT[30] DEST[Q] NORM $
+		;Construct dispatch address: high 6 bits.  Finish IOB RESET
+	D[CONST (GRN-DISPATCH \ 100)] ROT[22] ALU[DORQ]
+			DEST[GRN-DISP] SPEC[DEST-A-MEM] NORM POPJ $
+		;Finish contructing dispatch address and store away.
+		;We're done.

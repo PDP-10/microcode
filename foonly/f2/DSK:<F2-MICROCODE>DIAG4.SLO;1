@@ -1,0 +1,883 @@
+; *** This is the CPU DIAGNOSTIC for the FOONLY F2 and F3 computers.
+ ***
+CFDEF-IN:
+;;;.REPEAT CFDEF-IN < 1 [	;ONLY IF NOT ALREADY IN...
+F2SW = 0	; this must be defined...
+XLIST
+.INSERT SWINIT.SLO
+.INSERT CFDEF.SLO	; get machine definition
+LIST
+
+: 2000	; START ASSEMBLING INTO THIS ADDRESS
+;;;];REPEAT CFDEF-IN = 0
+
+START:
+	; FIRST, TEST JUMP TO SEE IF IT HANDLES TRUE/FALSE AND OBUS=0
+	; CONDITIONS PROPERLY.
+
+	JUMP [. + 1] $		; ... HELP OPERATOR START FROM SWITCHES ...
+	JUMP [.] COND [FALSE] $		; FAILS IF COND FALSE DOESNT WORK
+	JUMP [. + 2] COND [TRUE] $
+	JUMP [.] $			; HERE IF PREVIOUS INST FALLS THRU
+	ALU [-1] COND [OBUS=0] JUMP [.] $	; TEST OBUS=0 CONDITION
+	ALU [-1] COND [-OBUS=0] JUMP [. + 2] $
+	JUMP [.] $		; PREV INST FALLS THRU IF -OBUS=0 DONT WORK
+	ALU [0] COND [-OBUS=0] JUMP [.] $
+	ALU [0] COND [OBUS=0] JUMP [. + 2] $
+	JUMP [.] $
+
+	; NOW, TEST Q REG TO SEE IF IT CAN HOLD ANYTHING
+
+	ALU [0] DEST [Q] $	; LOAD 0 INTO Q REG
+	ALU [Q] COND [-OBUS=0] JUMP [.] $	; HALTS IF Q/=0
+	ALU [-1] DEST [Q] $	; LOAD -1 INTO Q
+	ALU [Q] COND [OBUS=0] JUMP [.] $	; HALTS IF Q=0
+
+	; TRY USING THE ALU TO OPERATE ON CONTENTS OF Q
+	; AT THIS POINT Q=-1
+
+	ALU [NOTQ] DEST [Q] $			; THIS ZEROS Q
+	ALU [Q] COND [-OBUS=0] JUMP [.] $	; CHECK TO BE SURE ITS 0
+	ALU [NOTQ] DEST [Q] $			; THIS SETS Q=-1
+	ALU [NOTQ] COND [-OBUS=0] JUMP [.] $	; NOT Q SHOULD NOW BE ZERO
+
+	ALU [Q+1] DEST [Q] $
+	ALU [Q] COND [-OBUS=0] JUMP [.] $	; SHOULD BE 0
+	ALU [Q-1] DEST [Q] $			; SHOULD BE -1
+	ALU [NOTQ] COND [-OBUS=0] JUMP [.] $
+			; THIS TIME, TRY ARITHMETICALLY MODIFYING Q
+
+; SEE IF MASKER IS ALIVE.
+; FIRST JUST SEE IF MASK FIELD IS SOMEWHAT READABLE.
+	ALU [D] D [CONST 0] COND [-OBUS=0] JUMP [.] $
+	ALU [D] D [CONST 77] COND [OBUS=0] JUMP [.] $
+
+; NOW SEE IF MASKER CAN BE READ AT ALL
+	ALU [D] D [MASK 0] COND [-OBUS=0] JUMP [.] $
+			; FIRST TRY A ZERO MASK
+	ALU [D] D [MASK 44] COND [OBUS=0] JUMP [.] $
+			; TRY -1 MASK. HALTS IF ITS A ZERO
+	ALU [NOTD] D [MASK 44] COND [-OBUS=0] JUMP [.] $
+			; TRY -1 MASK. COMPLEMENT RESULT TO MAKE SURE ITS -1
+
+
+; NOW TRY LOADING VARIOUS REGISTERS TO SEE IF THEY ARE ALIVE AT ALL
+
+	ALU [0] DEST [AR] $				; TEST AR
+	ALU [D] D [AR] COND [-OBUS=0] JUMP [.] $
+	ALU [-1] DEST [AR] $
+	ALU [D] D [AR] COND [OBUS=0] JUMP [.] $
+	ALU [NOTD] D [AR] COND [-OBUS=0] JUMP [.] $
+
+	ALU [0] DEST [MA] $				;TEST MA
+	ALU [D] D [MA] COND [-OBUS=0] JUMP [.] $
+	ALU [-1] DEST [MA] $
+	ALU [D] D [MA] COND [OBUS=0] JUMP [.] $
+	; (CAN'T DO 'NOTD' THING YET SINCE MA NOT A 36 BIT REG, AND
+	; WE DON'T YET KNOW IF THE MASKER IS WORKING THAT WELL! )
+
+
+	ALU [0] DEST [HOLD] $			; TEST HOLD REG
+	ALU [D] D [MEM] COND [-OBUS=0] JUMP [.] $
+	ALU [-1] DEST [HOLD] $
+	ALU [D] D [MEM] COND [OBUS=0] JUMP [.] $
+	ALU [NOTD] D [MEM] COND [-OBUS=0] JUMP [.] $
+
+
+	ALU [0] DEST [CRYOV] $		; LOAD ALL FLAGS IN PC WORD
+	ALU [0] DEST [PC] $		; ZERO THE PC
+	ALU [D] D [PC] COND [-OBUS=0] JUMP [.] $
+				; MAKE SURE FLAGS,,PC = 0
+	ALU [-1] DEST [PC] $
+	ALU [D] D [PC] COND [OBUS=0] JUMP [.] $
+				; SHOULD BE NONZERO NOW
+
+	ALU [-1] DEST [CRYOV] $
+	ALU [D] D [PC] COND [OBUS=0] JUMP [.] $
+				; SHOULD STILL BE NONZERO
+	ALU [0] DEST [PC] $
+	ALU [D] D [PC] COND [OBUS=0] JUMP [.] $
+				; THERE SHOULD STILL BE FLAGS ON
+	ALU [0] DEST [CRYOV] $	; LEAVE IT ZERO, IN CASE OF ?
+
+
+; ITS ABOUT TIME TO CHECK OUT THE CONSTANT (=MASK) FIELD THOROUGHLY.
+
+	ALU [0] DEST [Q] $
+	ALU [Q+1] DEST [Q] $	; SET Q=1
+; TRY A BIT IN ALL POSITIONS. 
+XX = 1
+.REPEAT 6 [	D [CONST XX] ALU [Q#D] COND [-OBUS=0] JUMP [.] $
+		XX = XX * 2
+		ALU [LSHQ] $
+	  ]
+
+; NOW MAKE SURE THE MASKER CAN BE OPERATED FROM THE MASK FIELD
+	ALU [0] DEST [Q] $
+XX = 0
+.REPEAT 44 [	D [MASK XX] ALU [Q#D] COND [-OBUS=0] JUMP [.] $
+		ALU [LSHQ] $
+		ALU [Q+1] DEST [Q] $
+		XX = XX + 1
+	   ]
+
+; ***  SOME BRUTE FORCE REGISTER DATA TESTS ***
+
+; FIRST TEST AR REGISTER (BY COMPARING CONTENTS WITH Q REG)
+
+;  LONELY BIT IN ALL POSITIONS:
+	D [CONST 1] DEST [Q] $
+L3:	ALU [Q] DEST [AR] $
+	ALU [Q#D] D [AR] COND [-OBUS=0] JUMP [.] $	; COMPARE Q TO AR
+	ALU [LSHQ] $
+	ALU [Q] COND [-OBUS=0] JUMP L3 $	; LOOP UNTIL BIT FALLS OFF
+
+;  LONELY HOLE IN ALL POSITIONS:
+	D [CONST 1] DEST [Q] $
+L4:	ALU [NOTQ] DEST [AR] $
+	ALU [D/#Q] D [AR] COND [-OBUS=0] JUMP [.] $
+	ALU [LSHQ] $
+	ALU [Q] COND [-OBUS=0] JUMP L4 $	; LOOP UNTIL BIT FALLS OFF
+
+; NOW TEST OUT THE HOLD REGISTER
+;  FIRST, LONELY BIT:
+	D [CONST 1] DEST [Q] $
+L5:	ALU [Q] DEST [HOLD] $
+	ALU [D#Q] D [MEM] COND [-OBUS=0] JUMP [.] $	; COMPARE Q TO HOLD
+	ALU [LSHQ] $
+	ALU [Q] COND [-OBUS=0] JUMP L5 $	; LOOP UNTIL BIT FALLS OFF.
+
+;  NOW, LONELY HOLE:
+	D [CONST 1] DEST [Q] $
+L6:	ALU [NOTQ] DEST [HOLD] $
+	ALU [D/#Q] D [MEM] COND [-OBUS=0] JUMP [.] $
+	ALU [LSHQ] $
+	ALU [Q] COND [-OBUS=0] JUMP L6 $
+
+; NOW A MORE THOROUGH MASKER/ROTATOR TEST...
+; FIRST GIVE THE ROTATOR A GOOD SHAKE
+; THE FIRST TEST TRIES A LONELY BIT ROTATED TO ALL POSITIONS
+
+; NOTE THAT CERTAIN REGISTERS (AR, HOLD) ARE ASSUMED TO WORK IN ORDER TO
+; TEST THE ROTATOR.  THEY SHOULD WORK DUE TO THE ABOVE TESTS.
+
+; THE FOLLOWING ROTATOR TESTS USE THE ROT SIZE REGISTER, WITH VALUES
+; FROM 1 TO 35.
+
+; ROTATED BIT TEST:
+	ALU [0] DEST [Q AR] $
+	ALU [Q+1] DEST [Q] $	; SET Q=1. Q USED FOR COMPARISON IN LOOP
+	ALU [Q] DEST [HOLD] $	; SET HOLD=1. WILL BE DATA FOR THE TEST.
+L1:	D [AR] DEST [ROTR] $	; LOAD ROTATION COUNT REGISTER
+	D [MEM] ROT [R] ALU [D#Q] COND [-OBUS=0] JUMP [.] $
+				; COMPARE ROTATED BIT TO CONTENTS OF Q.
+	ALU [D+1] D [AR] DEST [AR] $	; INCREMENT ROTATE COUNTER
+	ALU [LSHQ] $
+	ALU [Q] COND [-OBUS=0] JUMP L1 $
+			; KEEP LOOPING UNTIL BIT GETS SHIFTED OFF XEND OF Q
+
+; NOW TRY A ROTATING LONELY HOLE
+	ALU [0] DEST [Q AR] $
+	ALU [Q+1] DEST [Q] $	; SET Q=1
+	ALU [-1] DEST [HOLD] $	; USE HOLD FOR DATA, SINCE ITS 36 BITS.
+	ALU [D-1] D [MEM] DEST [HOLD] $	;INIT HOLD TO -2
+L2:	D [AR] DEST [ROTR] $	; LOAD ROTATION COUNT REGISTER
+	D [MEM] ROT [R] ALU [D/#Q] COND [-OBUS=0] JUMP [.] $
+	ALU [D+1] D [AR] DEST [AR] $	; INCREMENT SHIFT COUNT
+	ALU [LSHQ] $
+	ALU [Q] COND [-OBUS=0] JUMP L2 $
+			; KEEP LOOPING UNTIL BIT GETS SHIFTED OFF XEND OF Q
+
+
+; NOW WE TRY OUT THE MASK GENERATOR, USING THE MASK SIZE REGISTER.
+
+	ALU [0] DEST [Q HOLD] $	; INITIALIZE
+L7:	D [MEM] DEST [MASKR] $	; LOAD MASK REGISTER
+	D [2] MASK [R] ALU [D#Q] COND [-OBUS=0] JUMP [.] $
+				; SEE IF MASK MATCHES CONTENTS OF Q.
+	ALU [NOTQ] COND [OBUS=0] JUMP L7X $	; EXIT FROM LOOP WHEN DONE.
+	ALU [D+1] D [MEM] DEST [HOLD] $		; INCREMENT MASK SIZE
+	ALU [LSHQ] $
+	ALU [Q+1] DEST [Q] JUMP L7 $
+				; ADD ONE TO Q.  THIS MAKES Q INTO A MASK
+				; THEN LOOP
+L7X:
+
+; NOW DO THE SAME TEST, BUT ACTUALLY USING THE MASKER AS WELL AS THE
+; MASK GENERATOR.
+
+	ALU [0] DEST [Q HOLD] $	; INITIALIZE				
+	ALU [-1] DEST [AR] $	; USE AR TO HOLD TEST DATA
+L8:	D [MEM] DEST [MASKR] $	; LOAD MASK REGISTER
+	D [AR] ALU [D#Q] MASK [R] COND [-OBUS=0] JUMP [.] $
+				; SEE IF MASKED DATA MATCHES CONTENTS OF Q.
+	ALU [NOTQ] COND [OBUS=0] JUMP L8X $	; EXIT FROM LOOP WHEN DONE.
+	ALU [D+1] D [MEM] DEST [HOLD] $		; INCREMENT MASK SIZE
+	ALU [LSHQ] $
+	ALU [Q+1] DEST [Q] JUMP L8 $
+				; ADD ONE TO Q.  THIS MAKES Q INTO A MASK
+				; THEN LOOP
+L8X:
+
+
+; OK, NOW THE MASKER AND ROTATOR ARE KNOWN TO BE AT LEAST REASONABLY HEALTHY.
+; NOW WE CAN USE THEM TO TEST THE OTHER REGISTERS.
+
+; *** MORE REGISTER TESTS ***
+; TEST PC
+
+;  LONELY BIT TEST
+	D [CONST 1] DEST [Q] $
+L9:	ALU [Q] DEST [PC] $	
+	D [PC] ALU [D#Q] MASK [22] COND [-OBUS=0] JUMP [.] $
+		; COMPARE PC TO Q, HANG UP IF NOT THE SAME
+	ALU [LSHQ] $
+	D [MASK 22] ALU [D&Q] COND [-OBUS=0] JUMP L9 $
+				; LOOP WHILE BIT IS IN RIGHT HALF OF Q.
+
+;  LONELY HOLE TEST
+	D [CONST 1] DEST [Q] $
+L10:	ALU [NOTQ] DEST [PC] $	
+	D [PC] ALU [D/#Q] DEST [HOLD] $
+	D [MEM] MASK [22] COND [-OBUS=0] JUMP [.] $
+				; COMPARE PC WITH Q
+	ALU [LSHQ] $
+	D [MASK 22] ALU [D&Q] COND [-OBUS=0] JUMP L10 $
+				; LOOP WHILE BIT IS IN RIGHT HALF OF Q.
+
+; THE PC STILL NEEDS TO BE TESTED FOR INCREMENTING PROPERLY, BUT THAT CAN WAIT.
+
+; TEST MA (LOW ORDER 18. BITS ANYWAY; THIS IS A F2/F3 INCOMPATIBILITY)
+;  LONELY BIT TEST
+	D [CONST 1] DEST [Q] $
+L11:	ALU [Q] DEST [MA] $	
+	D [MA] ALU [D#Q] MASK [22] COND [-OBUS=0] JUMP [.] $
+		; COMPARE MA TO Q, HANG UP IF NOT THE SAME
+	ALU [LSHQ] $
+	D [MASK 22] ALU [D&Q] COND [-OBUS=0] JUMP L11 $
+				; LOOP WHILE BIT IS IN RIGHT HALF OF Q.
+
+;  LONELY HOLE TEST
+	D [CONST 1] DEST [Q] $
+L12:	ALU [NOTQ] DEST [MA] $	
+	D [MA] ALU [D/#Q] DEST [HOLD] $
+	D [MEM] MASK [22] COND [-OBUS=0] JUMP [.] $
+				; COMPARE MA WITH Q
+	ALU [LSHQ] $
+	D [MASK 22] ALU [D&Q] COND [-OBUS=0] JUMP L12 $
+				; LOOP WHILE BIT IS IN RIGHT HALF OF Q.
+
+; NOW A TEST OF THE IR (GULP)
+
+	ALU [0] DEST [HOLD] $	; THIS PRESUMABLY WORKS BY NOW.
+	ALU [0] DEST [IR-ALL] $
+	ALU [D] D [IR] COND [-OBUS=0] JUMP [.] $
+	ALU [-1] DEST [IR-ADR] $
+	ALU [D] D [IR] COND [OBUS=0] JUMP [.] $
+	ALU [-1] DEST [HOLD] $
+	ALU [D] D [IR] COND [OBUS=0] JUMP [.] $
+	ALU [0] DEST [IR-ALL] $	; NOTE: THIS DOES NOT ZERO IR! JUST RIGHT HALF
+	ALU [D] D [IR] COND [OBUS=0] JUMP [.] $
+	ALU [0] DEST [HOLD] $
+	ALU [0] DEST [IR-ADR] $		; STILL SHOULDN'T ZERO THE IR
+	ALU [D] D [IR] COND [OBUS=0] JUMP [.] $
+	ALU [0] DEST [IR-ALL] $		; THIS ZEROS IT.
+	ALU [D] D [IR] COND [-OBUS=0] JUMP [.] $
+	ALU [-1] DEST [HOLD] $
+	ALU [0] DEST [IR-23] $		; THIS SHOULD UN-ZERO THE IR AGAIN
+	ALU [D] D [IR] COND [OBUS=0] JUMP [.] $
+
+; NOW TEST THE IR MORE CAREFULLY
+
+	D [CONST 1] DEST [Q] $
+	ALU [0] DEST [HOLD] $
+L15:	ALU [Q] DEST [IR-ALL] $
+	D [IR] ALU [D#Q] COND [-OBUS=0] JUMP [.] $
+	ALU [LSHQ] $
+	D [MASK 22] ALU [D&Q] COND [-OBUS=0] JUMP L15 $
+
+L16:	ALU [Q] DEST [HOLD] $		;AT THIS POINT Q=1,,0
+	ALU [0] DEST [IR-ALL] $
+	D [IR] ALU [D#Q] COND [-OBUS=0] JUMP [.] $
+	D [MEM] ROT [1] DEST [HOLD]  $
+	ALU [LSHQ] $
+	ALU [Q] COND [-OBUS=0] JUMP L16 $
+
+; NOW THE LEGENDARY HOLE TEST...
+	D [CONST 1] DEST [Q] $
+	ALU [-1] DEST [HOLD] $
+L17:	ALU [NOTQ] DEST [IR-ALL] $	; LOADS IR WITH HOLE IN RIGHT HALF
+	D [IR] ALU [D/#Q] COND [-OBUS=0] JUMP [.] $
+	ALU [LSHQ] $
+	D [MASK 22] ALU [D&Q] COND [-OBUS=0] JUMP L17 $
+
+L18:	ALU [NOTQ] DEST [HOLD] $		;AT THIS POINT Q=1,,0
+	ALU [-1] DEST [IR-ALL] $	; LOADS IR WITH HOLE IN LEFT HALF
+	D [IR] ALU [D/#Q] COND [-OBUS=0] JUMP [.] $
+	D [MEM] ROT [1] DEST [HOLD] $	; SHIFT THE HOLE LEFT
+	ALU [LSHQ] $
+	ALU [Q] COND [-OBUS=0] JUMP L18 $
+
+
+
+; *** TEST AC SELECTION ***
+;   FIRST, LOAD EACH AC WITH ITS ADDRESS.
+XX = 0
+.REPEAT 20 [	D [CONST XX] ROT 27 DEST [HOLD] $	;MOVE AC# INTO HOLD REG
+		DEST [IR-ALL] $				;LOAD IR (ESP AC FIELD)
+		ACSEL [AC] D [CONST XX] DEST [AC] $	;STORE AC# IN AC
+		XX = XX + 1				;INC. AC #
+	   ]
+
+;   NEXT, TRY READING THEM BACK:  USE ALL POSSIBLE MEANS OF ADDRESSING
+;    FIRST, USE AC FIELD OF IR:
+XX = 0
+.REPEAT 20 [	D [CONST XX] ROT 27 DEST [HOLD] $
+		DEST [IR-ALL] $
+		ACSEL [AC] ALU [D#AC] D [CONST XX] COND [-OBUS=0] JUMP [.] $
+			; CHECKS TO MAKE SURE EACH AC CONTAINS ITS NUMBER.
+		XX = XX + 1
+	   ]
+;    2ND, USE INDEX FIELD OF IR
+XX = 0
+.REPEAT 20 [	D [CONST XX] ROT 22 DEST [HOLD] $	; LOAD INDEX FIELD
+		DEST [IR-ALL] $
+		ACSEL [MA] OP [R#S] SOURCE [D,A] D [CONST XX]
+			COND [-OBUS=0] JUMP [.] $
+		; ACSEL MA =>  'A' ADDRESS COMES FROM INDEX FIELD OF IR.
+		XX = XX + 1 
+	   ]
+
+;    3RD, USE LOW ORDER BITS OF MA
+XX = 0
+.REPEAT 20 [	D [CONST XX] DEST [MA] $	; LOAD MA WITH AC #
+		ACSEL [MA] ALU [AC] DEST [Q] $	; LOAD Q WITH (AC)
+		D [CONST XX] ALU [D#Q] COND [-OBUS=0] JUMP [.] $
+			; COMPARE Q (=AC) WITH AC #
+		XX = XX + 1
+	   ]
+
+;    LAST, USE AC CNT REGISTER
+XX = 0
+		ALU [0] DEST [AC-SEL] $
+.REPEAT 20 [	D [CONST XX] ACSEL [REG] DEST [A-MEM-CNTR&INC]
+			ALU [D#AC] COND [-OBUS=0] JUMP [.] $
+		XX = XX + 1
+	   ]
+
+
+; **** NOW TEST A-MEM ****
+; FIRST A SPOT CHECK USING LITERAL ADDRESSING
+
+; WRITE BLOCK NUMBER + 1 IN ZEROTH WORD OF EACH 8-WORD BLOCK IN A-MEM
+	D [CONST 40] DEST [Q CLR-DEV-FROM-INTR] $
+L40:	ALU [Q-1] DEST [DEV-ADR] $
+	ALU [Q] DEST [0] SPEC [DEST-A-MEM] $
+	ALU [Q-1] DEST [Q] COND [-OBUS=0] JUMP L40 $
+; NOW TRY READING IT BACK
+	D [CONST 40] DEST [Q] $
+L41:	ALU [Q-1] DEST [DEV-ADR] $
+	D [10] ALU [D#Q] COND [-OBUS=0] JUMP [.] $
+	ALU [Q-1] DEST [Q] COND [-OBUS=0] JUMP L41 $
+
+; WRITE  NOT(BLOCK NUMBER+1) IN FOURTH WORD OF EACH 8-WORD BLOCK IN A-MEM
+	D [CONST 40] DEST [Q CLR-DEV-FROM-INTR] $
+L42:	ALU [Q-1] DEST [DEV-ADR] $
+	ALU [NOTQ] DEST [4] SPEC [DEST-A-MEM] $
+	ALU [Q-1] DEST [Q] COND [-OBUS=0] JUMP L42 $
+; NOW TRY READING IT BACK
+	D [CONST 40] DEST [Q] $
+L43:	ALU [Q-1] DEST [DEV-ADR] $
+	D [14] ALU [D/#Q] COND [-OBUS=0] JUMP [.] $
+	ALU [Q-1] DEST [Q] COND [-OBUS=0] JUMP L43 $
+
+;;Special A-MEM addressing test suggested by TVR, adapted to fact that each
+;;12-bit chunk of 36-bit A-MEM word is on separate card.  MLB 15 NOV 79
+
+;The following 12-bit pattern is triplicated in each word of A-MEM:
+;	  00   01   02   03   04   05   06   07   08   09   10   11
+;BITS:	  12   13   14   15   16   17   18   19   20   21   22   23
+;	  24   25   26   27   28   29   30   31   32   33   34   35
+;	!----|----|----!----|----|----!----|----|----!----|----|----!
+;	! comp. word   ! word         ! 0  | 8 wd block number /    !
+;	! number       ! number       !    |  device address        !
+;	!----|----|----!----|----|----!----|----|----!----|----|----!
+;	(eg word number 5 in block 16 contains 251625162516)
+;This routine keeps a copy of the 12-bit pattern in AR and uses Q as a temp.
+
+	ALU[0] DEST[Q CLR-DEV-FROM-INTR] $	;Init Q, clear dev num
+AMWLP:	;Loop to write pattern into A-MEM, Q has device number at this point
+AMWORD = 0
+.REPEAT 8 [	;For each word create pattern and write it
+	D[CONST 7 * ( 8 - AMWORD ) ]		;This gives comp-word:word num
+		ROT[6] ALU[DORQ] DEST[Q AR] $	;Q AR _ 12-bit pattern	
+	D[AR] ROT[14] ALU[DORQ] DEST[Q DEV-ADR] $	;copy patt, set dev num
+	D[AR] ROT[30] ALU[DORQ] DEST[AMWORD]
+		SPEC[DEST-A-MEM] $		;Write full pattern into A-MEM
+	D[AR] MASK[37] ALU[Q] DEST[Q] $		;Q _ just device number
+AMWORD = AMWORD + 1
+]
+	ALU[Q+1] DEST[Q CLR-DEV-FROM-INTR] $	;Incr Q for next device
+	D[CONST 37] ALU[D&Q] DEST[Q]		;Mask to get device number
+		COND[-OBUS=0] JUMP AMWLP $	;Loop if not all dev nums done
+AMRLP:	;Loop to read and test pattern in A-MEM, Q has device number here
+AMWORD = 0
+.REPEAT 8 [	;For each word recreate pattern and test it against A-MEM 
+	D[CONST 7 * ( 8 - AMWORD ) ]		;This gives comp-word:word num
+		ROT[6] ALU[DORQ] DEST[Q AR] $	;Q AR _ 12-bit pattern	
+	D[AR] ROT[14] ALU[DORQ] DEST[Q DEV-ADR] $	;copy patt, set dev num
+	D[AR] ROT[30] ALU[DORQ] DEST[Q] $		;Q _ 36-bit pattern
+	D[10 + AMWORD] ALU[D#Q] COND[-OBUS=0] JUMP[.] $	;HANGS HERE ON LOSSAGE
+	D[AR] MASK[37] ALU[Q] DEST[Q] $		;Q _ just device number
+AMWORD = AMWORD + 1
+]
+	ALU[Q+1] DEST[Q CLR-DEV-FROM-INTR] $	;Incr Q for next device
+	D[CONST 37] ALU[D&Q] DEST[Q]		;Mask to get device number
+		COND[-OBUS=0] JUMP AMRLP $	;Loop if not all dev nums done
+
+
+; NOW AN EXTENSIVE TEST USING THE AC CNT REG.
+
+; WRITE BLOCKNUM,,WORDNUM INTO EACH WORD OF A-MEM
+; BLOCKNUM IS NUMBER OF NTH 16.-WORD BLOCK
+; WORDNUM IS INDEX OF WORD IN BLOCK
+
+	D [CONST 17] DEST [AR CLR-DEV-FROM-INTR] $	;INIT BLOCKNUM
+L20:	D [AR] ROT [1] DEST [DEV-ADR] $			; LOAD DEV ADR
+	ALU [0] DEST [Q AC-SEL] $			;INIT WORDNUM
+
+L200:	D [AR] ROT [22] ALU [DORQ] DEST [A-MEM-CNTR&INC]
+		SPEC [DEST-A-MEM] $			;AMEM = BLK,,WORD
+	ALU [Q+1] DEST [Q] $
+	D [CONST 20] ALU [D#Q] COND [-OBUS=0] JUMP L200 $
+
+	D [AR] COND [OBUS=0] JUMP L20X $
+	D [AR] ALU [D-1] DEST [AR] JUMP L20 $
+L20X:
+
+; NOW TRY TO READ IT BACK
+	D [CONST 17] DEST [HOLD] $			;INIT BLOCKNUM
+L21:	D [MEM] ROT [1] DEST [DEV-ADR] $		;LOAD DEV ADR REG
+	ALU [0] DEST [Q AC-SEL] $			;INIT WORDNUM
+
+L210:	D [MEM] ROT [22] ALU [DORQ] DEST[Q] $		;Q=BLK,,WORD
+	DEST [AR A-MEM-CNTR] D [10] $		;AR =A-MEM (AC CNT)
+	D [AR] ALU [D#Q] COND [-OBUS=0] JUMP [.] $	;COMPARE Q TO AR
+	ALU [-1] SPEC [DEST-A-MEM] DEST [A-MEM-CNTR&INC] $
+			;OVERWRITE A-MEM DATA TO MAKE TEST HARDER!
+
+	D [MASK 22] ALU [D&Q] DEST [Q] $		;Q=WORD
+	ALU [Q+1] DEST [Q] $				;Q=Q+1
+	D [CONST 20] ALU [D#Q] COND [-OBUS=0] JUMP L210 $ ;Q=20?
+
+	D [MEM] COND [OBUS=0] JUMP L21X $
+	D [MEM] ALU [D-1] DEST [HOLD] JUMP L21 $
+L21X:
+
+
+; **** NOW TEST SOME OF THE "SPECIAL" FUNCTIONS ****
+
+
+;  MAKE SURE SPEC [MA_PC] WORKS...
+
+	D [CONST 1] DEST [Q] $
+L50:	ALU [Q] DEST [PC] $
+	ALU [0] DEST [MA] SPEC [MA_PC] $
+	D [MA] ALU [D#Q] COND [-OBUS=0] JUMP [.] $
+	ALU [LSHQ] $
+	D [MASK 22] ALU [D&Q] COND [-OBUS=0] JUMP L50 $
+
+	D [CONST 1] DEST [Q] $
+L51:	ALU [NOTQ] DEST [PC] $
+	ALU [0] DEST [MA] SPEC [MA_PC] $
+	D [MA] ALU [D/#Q] DEST [HOLD] $
+	D [MEM] MASK [22] COND [-OBUS=0] JUMP [.] $
+	ALU [LSHQ] $
+	D [MASK 22] ALU [D&Q] COND [-OBUS=0] JUMP L51 $
+
+; TEST SPEC [LEFT]	; (FORCES MASK=-1,,0)
+	D [MASK 0] SPEC [LEFT] ROT [22] DEST [Q] $	;Q=777777, THE HARD WAY
+	D [MASK 22] ALU [D#Q] COND [-OBUS=0] JUMP [.] $	;NOW MAKE SURE ...
+
+; TEST SPEC [PC+1]
+	ALU [0] DEST [CRYOV] $
+	ALU [-1] DEST [PC] $
+	SPEC [PC+1] $
+	D [PC] COND [-OBUS=0] JUMP [.] $
+	SPEC [PC+1] $
+	D [PC] ALU [D-1] COND [-OBUS=0] JUMP [.] $
+
+; TEST MORE JUMP CONDITIONS:
+;  TRY OUT COND [AC=0]  (TRUE IF IR AC=0)
+;  AND COND [MEM-IDX-IND]  (TRUE IF IR IDX OR IND/=0)
+
+		D [CONST 1] ROT [22] DEST [HOLD] $
+.REPEAT 5 [	ALU [0] DEST [IR-ALL] $
+		COND [-AC=0] JUMP [.] $
+		COND [AC=0] JUMP [. + 2] $
+		JUMP [.] $
+		COND [MEM-IDX-IND] JUMP [. + 2] $
+		JUMP [.] $
+		COND [-MEM-IDX-IND] JUMP [.] $
+		D [MEM] ROT [1] DEST [HOLD] $
+	  ]
+
+; TEST BIT IN EACH POSITION OF IR AC FIELD
+.REPEAT 4 [	ALU [0] DEST [IR-ALL] $
+		COND [AC=0] JUMP [.] $
+		COND [-AC=0] JUMP [. + 2] $
+		JUMP [.] $
+		COND [MEM-IDX-IND] JUMP [.] $
+		COND [-MEM-IDX-IND] JUMP [. + 2] $
+		JUMP [.] $
+		D [MEM] ROT [1] DEST [HOLD] $
+	  ]
+
+; TEST COND [MA-AC]	(NUMBER IN MA IS AN AC ADDR)
+	ALU [0] DEST [MA] $
+L60:	COND [MA-AC] JUMP [. + 2] $
+	JUMP [.] $
+	COND [-MA-AC] JUMP [.] $
+	D [MA] ALU [D+1] DEST [MA Q] $
+	D [CONST 20] ALU [D#Q] COND [-OBUS=0] JUMP L60 $
+
+; AT THIS POINT MA=20
+; NOW ROTATE THE BIT INTO ALL POSITIONS, TO BE SURE THE CONDITION DOESNT
+; BECOME TRUE SPURIOUSLY.
+L61:	COND [MA-AC] JUMP [.] $
+	D [MA] ROT [1] DEST [MA Q] $
+	D [CONST 1] ALU [D#Q] COND [OBUS=0] JUMP [L61] $
+
+; NOW TRY ALL AC BITS ON, BUT EXTRA BITS ON TOO.
+	D [CONST 20] DEST [Q] $
+L62:	D [CONST 17] ALU [DORQ] DEST [MA] $
+	COND [MA-AC] JUMP [.] $
+	COND [-MA-AC] JUMP [. + 2] $
+	JUMP [.] $
+	ALU [LSHQ] $
+	D [CONST 1] ROT[22] ALU [D&Q] COND [-OBUS=0] JUMP L62 $
+
+; TEST COND [OBUS18]
+	D [CONST 1] ROT [21] COND [-OBUS18] JUMP [.] $
+	D [CONST 1] ROT [21] COND [OBUS18] JUMP [. + 2] $
+	JUMP [.] $
+	ALU [0] COND [OBUS18] JUMP [.] $
+	ALU [0] COND [-OBUS18] JUMP [. + 2] $
+	JUMP [.] $
+
+; TEST COND [OBUS<0]
+	D [CONST 1] ROT [43] COND [-OBUS<0] JUMP [.] $
+	D [CONST 1] ROT [43] COND [OBUS<0] JUMP [. + 2] $
+	JUMP [.] $
+	ALU [0] COND [OBUS<0] JUMP [.] $
+	ALU [0] COND [-OBUS<0] JUMP [. + 2] $
+	JUMP [.] $
+	D [MASK 43] COND [OBUS<0] JUMP [.] $
+	D [MASK 43] COND [-OBUS<0] JUMP [. + 2] $
+	JUMP [.] $
+
+.repeat 0 [	;I'm afraid that's not what Q0-35 means.  It has to do with shifting
+; COND [Q0-35]		LOW ORDER BIT OF Q REGISTER
+	ALU [0] DEST [Q] $		;FIRST TRY IT WITH A 0
+	COND [Q0-35] JUMP [.] $
+	COND [-Q0-35] JUMP [. + 2] $
+	JUMP [.] $
+	D [CONST 1] DEST [Q] $		;THEN TRY IT WITH A 1
+	COND [Q0-35] JUMP [. + 2] $
+	JUMP [.] $
+	COND [-Q0-35] JUMP [.] $
+];repeat 0
+
+; COND[USER]
+	ALU[0] DEST[CRYOV] NORM JUMP[. + 1] $
+		;Clear all flags
+	COND[-USER] NORM JUMP[. + 2] $
+		;User on?
+	JUMP[.] $
+		;USER always true
+	ALU[-1] DEST[CRYOV] NORM $
+		;Try setting all flags
+	COND[USER] NORM JUMP[. + 2] $
+		;User on?
+	JUMP[.] $
+		;USER is never true
+	D[CONST 1] ROT[44 - 6] DEST[CRYOV] NORM $
+		;Now, try user bit itself
+	COND[USER] NORM JUMP[. + 2] $
+	JUMP[.] $
+		;USER is connected to wrong bit
+	D[CONST 1] ROT[44 - 6] ALU[NOTD] DEST[CRYOV] NORM $
+	COND[-USER] NORM JUMP[. + 2] $
+	JUMP[.] $
+		;USER is conditioned by something other than the user bit
+	
+
+; **** SEQUENCER TESTS ****
+
+;  CHECK OUT PUSHJ
+.REPEAT 5 [	JPOP [. + 1] $	; MAKE DAMN SURE STACK IS EMPTY BEFORE TEST!
+	  ]
+
+;   THIS TEST MAKES SURE THE ROUTINE GETS CALLED EXACTLY THE RIGHT NUMBER
+;   OF TIMES.
+
+	D [CONST 10] DEST [Q] $
+.REPEAT 10 [	PUSHJ [ROUT1] $
+	   ]
+	ALU [Q] COND [-OBUS=0] JUMP [.] $
+	JUMP PJ $
+
+ROUT1:	ALU [Q-1] DEST [Q] POPJ $
+	JUMP [.] $
+
+; FURTHER PUSHJ CHECK... TRY NESTED ROUTINES.
+
+PJ:	ALU [0] DEST [Q] $
+	PUSHJ R1 $
+	ALU [D#Q] D [CONST 37] COND [-OBUS=0] JUMP [.] $
+	JUMP LOOP0 $
+
+R1:	D [CONST 1] ALU [DORQ] DEST [Q] PUSHJ R2 $
+	POPJ $
+	JUMP [.] $
+
+R2:	D [CONST 2] ALU [DORQ] DEST [Q] PUSHJ R3 $
+	POPJ $
+	JUMP [.] $
+
+R3:	D [CONST 4] ALU [DORQ] DEST [Q] PUSHJ R4 $
+	POPJ $
+	JUMP [.] $
+
+R4:	D [CONST 10] ALU [DORQ] DEST [Q] PUSHJ R5 $
+	POPJ $
+	JUMP [.] $
+
+R5:	D [CONST 20] ALU [DORQ] DEST [Q] POPJ $
+	JUMP [.] $
+
+
+; CHECK LOOP, INCLUDING R REGISTER IN SEQUENCER, AND LLOAD
+
+LUPERR:	JUMP [.] $	; THE FIRST LOOP TEST COMES HERE IF IT LOSES
+
+; THE PUSHJ TEST COMES HERE AFTER ITS DONE.
+LOOP0:
+	ALU [0] DEST [Q] LLOAD $
+	ALU [Q-1] DEST [Q] LOOP [LUPERR] $	; SHOULD JUST FALL THROUGH
+	ALU [NOTQ] COND [-OBUS=0] JUMP [.] $	; Q SHOULD BE -1
+
+	D [CONST 1] DEST [Q] LLOAD $		; R=Q=1
+	ALU [Q-1] DEST [Q] LOOP [.] $
+	ALU [NOTQ] COND [-OBUS=0] JUMP [.] $
+
+	D [CONST 1] ROT [3] DEST [Q] LLOAD $	; R=Q=10
+	ALU [Q-1] DEST [Q] LOOP [.] $
+	ALU [NOTQ] COND [-OBUS=0] JUMP [.] $
+
+	D [CONST 1] ROT [6] DEST [Q] LLOAD $	; R=Q=100
+	ALU [Q-1] DEST [Q] LOOP [.] $
+	ALU [NOTQ] COND [-OBUS=0] JUMP [.] $
+
+	D [CONST 1] ROT [11.] DEST [Q] LLOAD $	; R=Q=4000
+	ALU [Q-1] DEST [Q] LOOP [.] $
+	ALU [NOTQ] COND [-OBUS=0] JUMP [.] $
+
+;
+;Test the MAP for its function as a memory
+;
+
+;Will it hold bits?
+	ALU[0] DEST[MA CRYOV] NORM JUMP[. + 1] $
+		;Use map location 0, EXEC space
+	ALU[0] DEST[STO-MAP] NORM PUSHJ[MAPRD] $
+		;See which bits stick on
+	ALU[Q] COND[OBUS=0] JUMP[.] $
+		;These bits should be zero.
+		;(Caution: Bit 9, NO MAP ENTRY, is inverted.)
+	ALU[-1] DEST[STO-MAP] NORM PUSHJ[MAPRD] $
+		;Set which bits don't come on
+	D[MASK 22] ROT[9.] ALU[D#Q] JUMP[.] $
+		;Bits shown here should be one, but read back as zero.
+		;(Caution: Bit 9, NO MAP ENTRY, is inverted.)
+	D[CONST 1] ROT[44 - 5] DEST[CRYOV] NORM $
+		;Try USER part of map
+	ALU[0] DEST[STO-MAP] NORM PUSHJ[MAPRD] $
+		;See which bits stick on in user map
+	ALU[Q] COND[OBUS=0] JUMP[.] $
+		;These bits should be zero.
+		;(Caution: Bit 9, NO MAP ENTRY, is inverted.)
+	ALU[-1] DEST[STO-MAP] NORM PUSHJ[MAPRD] $
+		;Set which bits don't come on in user map
+	D[MASK 22] ROT[9.] ALU[D#Q] JUMP[.] $
+		;Bits shown here should be one, but read back as zero.
+		;(Caution: Bit 9, NO MAP ENTRY, is inverted.)
+
+;Simple addressing test
+	ALU[0] DEST[Q MA CRYOV] NORM JUMP[. + 1] $
+		;Start with a clear slate
+MPADL1:	ALU[Q] DEST[STO-MAP] NORM $
+		;Set contents to address
+	D[CONST 1] ROT[9] ALU[D+Q] DEST[Q] $
+		;Advance to next page
+	D[MASK 22] ALU[D&Q] DEST[MA] NORM COND[-OBUS=0] JUMP[MPADL1] $
+		;Check for XEND of EXEC/USER space
+	D[CONST 1] ROT[44 - 9] DEST[CRYOV] SHORT $
+		;Set user mode
+	D[CONST 1] ROT[22] ALU[D#Q] COND[OBUS=0] JUMP[MPADL1] $
+		;Jump if at XEND of EXEC pass
+	ALU[0] DEST[Q MA CRYOV] NORM JUMP[. + 1] $
+		;Start again, this time reading
+MPADL2:	ALU[Q] DEST[AR] NORM PUSHJ[MAPRD] $
+		;Save data and fetch map location
+	D[AR] ALU[Q#D] NORM COND[-OBUS=0] JUMP[.] $
+		;Lights show bits in error
+	D[AR] DEST[Q] SHORT $		;Restore Q
+	D[CONST 1] ROT[9] ALU[D+Q] DEST[Q] $
+		;Advance to next page
+	D[MASK 22] ALU[D&Q] DEST[MA] COND[-OBUS=0] JUMP[MPADL2] $
+		;Check for XEND of EXEC/USER space
+	D[CONST 1] ROT[44 - 9] DEST[CRYOV] SHORT $
+		;Set user mode
+	D[CONST 1] ROT[22] ALU[D#Q] NORM COND[OBUS=0] JUMP[MPADL2] $
+		;Jump if at XEND of EXEC pass
+
+;Try single bits
+	D[CONST 1,,1] DEST[AR] NORM JUMP[. + 1]
+MPBTL0:	ALU[0] DEST[MA CRYOV] NORM JUMP[. + 1] $
+MPBTL1:	D[AR] ROT[1] MASK[22] DEST[AR] NORM $
+		;Rotate right one, each half
+	D[AR] ROT[9] DEST[STO-MAP] NORM $
+		;Put single bit into map
+		;Note, extra bit from left half should have no effect
+	D[CONST 1] ROT[9] ALU[D+Q] DEST[Q] SHORT $
+	D[MASK 22] ALU[D&Q] DEST[MA] NORM COND[-OBUS=0] JUMP[MPBTL1] $
+		;Repeat for each map entry in this space
+	D[AR] ROT[42] DEST[AR] NORM $
+		;Backup to beginning of this iteration. (1024=18*57-2)
+;Now, try reading it back
+	ALU[0] DEST[MA CRYOV] NORM JUMP[. + 1] $
+MPBTL2:	D[AR] ROT[1] MASK[22] DEST[AR] NORM PUSHJ[MAPRD] $
+		;Rotate right one, each half
+	D[AR] ROT[9] ALU[D#Q] DEST[Q] SHORT $
+		;Do comparison, ignore extra junk for the momemnt
+	D[MASK 22] ROT[9] ALU[D&Q] NORM COND[-OBUS=0] JUMP[.] $
+		;Bits in error show in lights.  AR contains what
+		;it should be, ignoring bits 0:8, 27:35.  Note:
+		;that bit 9 (NO MAP ENTRY) is complemented by map.
+	D[MA] DEST[Q] $
+	D[CONST 1] ROT[9] ALU[D+Q] DEST[Q] SHORT $
+	D[MASK 22] ALU[D&Q] DEST[MA] NORM COND[-OBUS=0] JUMP[MPBTL2] $
+		;Repeat for each map entry in this space
+	D[CONST 1] ROT[44 - 9] DEST[CRYOV] COND[EXEC] JUMP[MPBTL2] $
+		;Set user mode and repeat test if previously in exec.
+	D[AR] ROT[43] DEST[AR Q] NORM $
+		;Let AR rotated left one from previous iteration
+		;(1024=18*57-2, we're doing -1 this time)
+	D[CONST 1,,1] ALU[D#Q] NORM COND[-OBUS=0] JUMP[MPBTL0] $
+		;Repeat this test 18 times.
+	
+;Do lonesome holes
+	D[CONST 1,,1] DEST[AR] NORM JUMP[. + 1]
+MPHLL0:	ALU[0] DEST[MA CRYOV] NORM JUMP[. + 1] $
+MPHLL1:	D[AR] ROT[1] MASK[22] DEST[AR] NORM $
+		;Rotate right one, each half
+	D[AR] ROT[9] ALU[NOTD] DEST[STO-MAP] NORM $
+		;Put single bit into map
+		;Note, extra bit from left half should have no effect
+	D[CONST 1] ROT[9] ALU[D+Q] DEST[Q] SHORT $
+	D[MASK 22] ALU[D&Q] DEST[MA] NORM COND[-OBUS=0] JUMP[MPHLL1] $
+		;Repeat for each map entry in this space
+	D[AR] ROT[42] DEST[AR] NORM $
+		;Backup to beginning of this iteration. (1024=18*57-2)
+;Now, try reading it back
+	ALU[0] DEST[MA CRYOV] NORM JUMP[. + 1] $
+MPHLL2:	D[AR] ROT[1] MASK[22] DEST[AR] NORM PUSHJ[MAPRD] $
+		;Rotate right one, each half
+	D[AR] ROT[9] ALU[D/#Q] DEST[Q] SHORT $
+		;Do comparison, ignore extra junk for the momemnt
+	D[MASK 22] ROT[9] ALU[D&Q] NORM COND[-OBUS=0] JUMP[.] $
+		;Bits in error show in lights.  AR contains complement
+		;of what it should be, ignoring bits 0:8, 27:35.
+		;Note that bit 9 (NO MAP ENTRY) is complemented by map.
+	D[MA] DEST[Q] $
+	D[CONST 1] ROT[9] ALU[D+Q] DEST[Q] SHORT $
+	D[MASK 22] ALU[D&Q] DEST[MA] NORM COND[-OBUS=0] JUMP[MPHLL2] $
+		;Repeat for each map entry in this space
+	D[CONST 1] ROT[44 - 9] DEST[CRYOV] COND[EXEC] JUMP[MPHLL2] $
+		;Set user mode and repeat test if previously in exec.
+	D[AR] ROT[43] DEST[AR Q] NORM $
+		;Let AR rotated left one from previous iteration
+		;(1024=18*57-2, we're doing -1 this time)
+	D[CONST 1,,1] ALU[D#Q] NORM COND[-OBUS=0] JUMP[MPHLL0] $
+		;Repeat this test 18 times.
+	
+	JUMP[MPTSTEND]
+;Still need to be written:
+;	Test for CLR-MAP
+;	Tests page faults
+
+;Subroutine to fetch map entry
+MAPRD:	D[CONST 1] DEST[DEV-ADR] NORM SPEC[IOB-IN] $
+		;Set to map and start a read
+	MAPF[4] D[IOD] DEST[Q] CYLEN[IOB-IN] $
+		;Read map at current MA
+	D[CONST 1] ROT[44 - 9] ALU[D#Q] DEST[Q] SHORT $
+		;Fix backward bit
+	D[MASK 22] ROT[9] ALU[D&Q] DEST[Q] NORM POPJ $
+		;Get rid of extra crud and return
+
+MPTSTEND:
+		;End of map test
+
+
+
+	JUMP START $
+	
+;Test USER/EXEC shift register
+	ALU[0] DEST[Q AR MA] JUMP[. + 1] $
+USRSH1:	D[AR] ROT[9] DEST[MAP-EXEC-SR] $
+		;Set USER shift register from OBUS
+	D[CONST 4] LLOAD $
+USRSH2:	D[AR] MASK[1] NORM COND[-OBUS=0] JUMP[USRSH3] $
+		;Jump if user expected
+	COND[-USER] NORM JUMP[USRSH4] $
+		;Should be in exec mode here
+	JUMP[.] $
+		;Failure in USER shift register.
+USRSH3:	COND[USER] NORM JUMP[USRSH4] $
+		;Should be in user mode here
+	JUMP[.] $
+		;Failure in USER shift register
+USRSH4:	DEST[MEMSTO] NORM $
+		;As a side effect, advances user shift register
+	D[AR] ROT[43] MASK[4] NORM LOOP[USRSH2] $
+		;Repeat for each position in shifter
+	ALU[Q+1] DEST[Q AR] $
+		;Try next case
+	D[AR] MASK[4] COND[-OBUS=0] JUMP[USRSH1] $
+		;Repeat for each pattern
+
+
+;-----------------------------------------------------------------------
+;This is a simple loop which copies the switches into the lights
+;It is here so that it can be patched to make special purpose
+;diagnostics, as well and providing a simple test for the switches,
+;lights and the FBUS.
+;-----------------------------------------------------------------------
+SWLOOP:	ALU[0] DEST[DEV-ADR] NORM JUMP[. + 1] $
+	DEST[CLR-DEV-FROM-INTR] NORM SPEC[IOB-IN] $
+		;Setup to read switches.  Make sure we get them!
+	MAPF[2] D[IOD] DEST[Q] CYLEN[IOB-IN] SPEC[IOB-IN] $
+		;This gets the data switches, also get address switches
+	MAPF[4] D[IOD] DEST[MA AR] CYLEN[IOB-IN] $
+.REPEAT 20[
+	CONT $	]	;Plenty of space for special hacks
+	ALU[0] DEST[DEV-ADR] NORM JUMP[. + 1] $
+		;Don't trust anyone!
+	ALU[Q] DEST[IOD] NORM SPEC[IOB-OUT] $
+		;Display results in lights.  (Did you turn off SEE OBUS?)
+	MAPF[2] ALU[Q] CYLEN[IOB-OUT] JUMP[SWLOOP] $
+
+]
+

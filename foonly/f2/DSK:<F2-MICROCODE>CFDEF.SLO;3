@@ -1,0 +1,398 @@
+
+comment !
+F2/3 MICROCODE DEFINITIONS
+!
+
+YZA = !-.INSERT-'SWINIT.SLO'-!
+
+;;$$ SET FAST = 1 FOR NORMAL SPEED MICRO CODE, = 0 FOR SLOW SPEED.
+
+F3SW = 1 - F2SW
+
+.REPEAT 1 - XUCODE [	declare-memory console-computer 72. 10000	 ]
+.REPEAT XUCODE [	declare-memory console-computer 72. 20000	 ]
+
+WORD = FIELD 72. 71. $
+PARITY = FIELD 1 51. $
+
+GEN-PARITY EVEN WORD PARITY $
+
+
+CYLEN = FIELD 4 3
+	LONG = 0  DEFAULT
+	MUSTO'CYLEN =	3
+	TOO-SHORT	= 17
+
+ .REPEAT FAST [
+	SHORT		= 16 - SLOW1 
+	NORM =	15 - SLOW2
+	DISP'CYLEN =	13
+	FIXM'CYLEN =	15 - SLOW2 ;FOR NOW
+	FIXM+1 =	15 - SLOW2 ;FOR NOW
+  ;	NOTE:  FIXM+1 CYCLES MUST BE 15 - SLOW2 OR SHORTER
+	MEMSTO'CYLEN =	15 - SLOW2 ;FOR NOW
+	C450	=	14
+   ]
+
+ .REPEAT 1 - FAST [
+	SHORT	=	13 ;;<16
+	NORM	=	13 ;;<15
+	DISP'CYLEN =	13 ;;<13
+	FIXM'CYLEN =	13 ;;<15 ;FOR NOW
+	FIXM+1 =	13 ;;<15 ;FOR NOW
+  ;	NOTE:  FIXM+1 CYCLES MUST BE NORM OR SHORTER
+	MEMSTO'CYLEN =	13 ;;<15 ;FOR NOW
+	C450	=	13 ;;<14
+   ]
+
+	C500	=	13
+	C550	=	12
+	C600	=	11
+	C650	=	10
+	C700	=	7
+	C800	=	5
+	IOB-IN'FNUD	=	3
+	C-IN	=	3
+	IOB-OUT'FNUD	=	11 ; 600 NS. SHOULD BE ENUF..;;3
+	C-OUT	=	11
+	MAX,IOB-OUT,C550  =	3
+	C1000	=	1
+
+COND = field 5 8.
+	true		= 0   default
+	false		= 20
+	INTRPT	= 1
+	-INTRPT	= 21
+	ma-ac		= 2
+	-MA-AC		= 22
+	AC=0		= 3
+	-AC=0		= 23
+	MEM-IDX-IND	= 4
+	-MEM-IDX-IND	= 24
+	USER		= 5
+	-USER		= 25
+	EXEC		= 25
+	obus=0		= 10
+	-obus=0		= 30
+	obus<0		= 11
+	-obus<0		= 31
+	JCOND		= 12
+	-JCOND		= 32
+	obus18		= 13
+	-obus18		= 33
+	Q0-35		= 14
+	-Q0-35		= 34
+	CRY0		= 15
+	-CRY0		= 35
+	HALF		= 16
+	-HALF		= 36
+	byte-ovf	= 17
+	-byte-ovf	= 37 $
+		
+@ = field 12. 71.  label
+	no-@ = 0 default $
+
+J-CODE = field 4 12.
+	PUSHJ		= @[] 1
+	LBJUMP		= @[] 2
+	JUMP		= @[] 3
+	LOOP		= @[] 5
+	POPJ		= 6
+	JPOP		= @[] 7
+	DISP		= @[] 12
+	SDISP		= 13
+	SLOOP		= @[] 15
+	CONT		= 16 DEFAULT
+	CONTA		= @[] 16
+	LLOAD		= 17 $
+
+MA-STB-FIELD = field 1 13.
+	NO-MA-STB	= 0 default
+	MA'STB		= 1 $
+
+AR-STB-FIELD = field 1 14.
+	NO-AR-STB	= 0 default
+	AR'STB		= 1 $
+
+CURRENTLY-UNUSED = FIELD 1 20.
+	OFF-UNUSED'UNUSED = 0 DEFAULT $
+
+PAR = FIELD 1 51.
+	PAR-IS-0 = 0 DEFAULT $
+
+
+comment /
+	Constant value field is same field as mask, selected when
+	external source = 3
+/
+D = field 4 24. $
+
+constant-value = d[3] field 7 50. 
+	1,,1'		= 100 $
+
+rot-sel = field 1 37.
+	rot-sel-0 = 0 default $
+
+rot =  field 6 43.
+	R'ROT = ROT-SEL 1 0
+	0'rotate = ROT-SEL 0 0 default
+	R-0'rotate = ROT-SEL 0 0 $
+rotate = rot [] $
+
+mask-sel = field 1 44.
+	mask-sel-0 = 0 default $
+
+mask =  field 6 50.
+	R'MASK   = mask-SEL 1 0
+	-1'mask = mask-sel 0 44 default $
+
+modify-field d
+	ar'ext		= 0 default
+	mem'ext		= 1
+	mask'ext	= mask[] 2
+	const'ext	= constant-value [] 3
+	pc'ext		= 4
+	ma'ext		= 5
+	IOD'EXT		= 6
+	ir'ext		= 7 $
+
+carry-in = field 1 34.
+	no-carry	= 0 default
+	carry		= 1 $
+
+alu-d-range = field 1 25.
+	alu-d<4		= 0 
+	alu-d>=4	= 1 $
+	
+alu-d = field 3 27.
+	q'alud		= 0
+	none'alud	= 1 default
+	O_AC'ALUD	= 2
+	AC'ALUD		= 3
+	D4	= 4
+	D5	= 5
+	D6	= 6
+	D7	= 7 $
+
+dest = field 5 19.
+	allow	ma-stb-field
+	allow	ar-stb-field
+	ALLOW   ALU-D
+	NO-DEST'dest	= 0 default
+	IR-ADR'dest	= 1 
+	IR-23'dest	= 2
+	IR-ALL'dest	= 3
+	AC-SEL'dest	= 4
+	ROTR		= 5
+	MASKR		= 6
+	I/O-DEV'	= 7
+	DEV-ADR'DEST	= 7
+	MAP-DISP'DEV	= 10
+	IOD'DEST	= 11
+	CLR-DEV-FROM-INTR = 12
+	HI-ABS-MA	= 13
+	CLR-MI-ERR	= 17
+	STRT-WRT	= 20
+	MEMSTO		= 21
+	HOLD'DEST	= 22
+	PC'DEST		= 23
+	CLR-MAP		= 24
+.REPEAT 1 - NEWMAP [
+	STO-MAP		= 25
+];.REPEAT 1 - NEWMAP
+.REPEAT NEWMAP [
+	MAP-DISABLE	= 25
+];.REPEAT NEWMAP
+	CRYOV'DEST	= 26
+	MAP-EXEC-SR	= 27
+	FIXMAC-MAPF-RD	= 30
+	FIXMAC-MAPF-WRT	= 31
+	FIXMAC'DEST	= 32
+	A-MEM-CNTR&INC	= 34
+	A-MEM-CNTR	= 35
+	MUCODE-HI	= 36
+	MUCODE-LO	= 37
+
+source = alu-d<4 field 3 33. 		;alu source field
+	a,b'src		= 0  default
+	a,q'src		= 1 
+	0,b'src		= 2
+	0,q'src		= 3
+	d,a'src		= 4
+	0,a'src		= 5
+	d,0'src		= 6
+	d,q'src		= 7 $
+
+cond-source = alu-d>=4 field 3 33.
+	d,a'		= 0
+	0,a'		= 1
+	d,0'		= 2
+	d,q'		= 3
+	0,a-or-d,a	= 4
+	d,q-or-d,0	= 6 $
+
+ACSEL = field 2 36.
+	REG'acsel 	= 0
+	MA'acsel 	= 1
+	IX'acsel 	= SOURCE 0,A 1
+	AC'acsel	= 2 default
+	AC+1'acsel	= 3 $
+
+		
+alu = field 3 30.
+	AC'alu	= source 0,b 3
+	D'alu	= source d,0 3 DEFAULT
+	Q'alu	= source 0,q 3
+	0'alu	= source 0,q 4
+	-1'alu	= source a,b 7
+	0-D'ALU = SOURCE D,0 CARRY 1
+	0-AC'ALU = SOURCE 0,B CARRY 2
+	0-Q	= SOURCE 0,Q CARRY 2
+	IX+D	= SOURCE D,A ACSEL 1 0
+	D+1	= SOURCE D,0 CARRY 0
+	Q+1	= SOURCE 0,Q CARRY 0
+	AC+1	= SOURCE 0,B CARRY 0
+	D-1	= SOURCE D,0 2
+	AC-1	= SOURCE 0,B 1
+	Q-1	= SOURCE 0,Q 1
+	Q-D-1	= SOURCE D,Q 1
+	D-Q-1	= SOURCE D,Q 2
+	NOTAC	= SOURCE 0,B 7
+	NOTD	= SOURCE D,0 7
+	NOTQ	= SOURCE 0,Q 7
+	SH-AC	= COND-SOURCE 0,A 3
+	LSH	= COND-SOURCE 0,A ALU-D D7 MASK 2 3
+	LSHQ	= COND-SOURCE 0,A ALU-D D6 MASK 2 3
+		; **** MASK 2 FORCES 0'S TO BE SHIFTED IN
+
+	MULAC-D = COND-SOURCE D,A CARRY 1
+	MULAC+D	=	COND-SOURCE 0,A-OR-D,A 0
+	DIVAC+D	=	COND-SOURCE D,A 0
+	DIVAC-D = COND-SOURCE D,A CARRY 1
+	D+Q+1	= SOURCE D,Q CARRY 0
+	D-0'ALU	= SOURCE D,0 CARRY 2
+
+
+.define sources [ R S SRC ]
+[	R`+`S`'alu`src	= source src 0
+	S`+`R`'ALU`SRC	= SOURCE SRC 0
+	S`-`R`'alu`src	= source src CARRY 1
+	R`-`S`'alu`src	= source src CARRY 2
+	R`or`S`'alu`src	= source src 3
+	S`OR`R`'ALU`SRC	= SOURCE SRC 3
+	R`&`S`'alu`src	= source src 4
+	S`&`R`'alu`src	= source src 4
+	-`R`&`S`'alu`src = source src 5
+	R`#`S`'alu`src	= source src 6
+	S`#`R`'alu`src	= source src 6
+	R`/#`S`'alu`src	= source src 7
+	S`/#`R`'alu`src	= source src 7
+]
+sources [ D AC d,a ]
+sources [ AC Q a,q ]
+sources [ D Q d,q ]
+	$	; END ALU FIELD DEF.
+
+OP = FIELD 3 30.		; ALTERNATE, DIRECT ALU OPCODE SPECIFIER
+	R+S		= 0
+	s-r		= CARRY 1
+	r-s		= CARRY 2
+	r!s		= 3
+	r&S		= 4
+	-r&s		= 5
+	r#s		= 6
+	r/#s		= 7 $
+
+SPEC = FIELD 4 55.
+	NO-SPEC		= 0 DEFAULT
+	LEFT'SPEC	= MASK 0 1
+	LEFT&MA_PC	= MASK 0 2
+	MA_PC		= 3
+	CRYOV&MA_PC	= 4
+	CRYOV'SPEC	= 5
+.REPEAT F2SW [ PC+1-IF&	= 7
+	PC+1-IF&HI-MA	= 6
+]
+.REPEAT 1 - F2SW [
+	PC+1-IF&	= 6
+]
+	PC+1-IF		= 7
+	PC+1'SPEC	= 10
+	CLR-HALF	= 11
+	A-MEM-APR	= 12
+	A-MEM-APR&DEST-A-MEM = 13
+	DEST-A-MEM	= 14
+	IOB-IN'SPEC	= 16
+	START-IN	= 16
+	IOB-OUT'SPEC	= 17
+
+
+
+	START-OUT	= 17
+	$
+
+MAPF = FIELD 4 59.
+	MAPF-ZERO =  0  DEFAULT 
+	NORM-IND	= 1
+	NORM-RD		= 2
+	NORM-WRT	= 3
+	STO		= 4
+	BLT-RD		= 5
+	BLT-WRT		= 6
+	BLT-RDA		= 7
+	BLT-WRTA	= 10
+	BYTE-ILD	= 11
+	BYTE-IDP	= 12
+	BYTE-IND	= 13
+	BLT-WRTB	= 14
+	MAPFTR		= 15
+	PPOP		= 16
+	MASTO	=	17 ; LIKE STO EXCEPT MA HAS MA (NOT IR)
+
+	TEMP'MAPF = 0 $
+
+;;	LIST-FIELDS
+
+	.DEFINE .PAIR [] [:. \ 2 + .
+];.PAIR
+	.DEFINE .QUAD [] [:. + 3 - (. + 3) \ 4 
+];.QUAD
+
+;.USE[<PC name>]
+;Selects area to assemble in.  Remembers end of previous area, if it wasn't
+;absolute.  (Use .ORG to assemble into absolute locations)
+	.DEFINE .USE[PCNAME] [ XLIST
+	.ENDORG
+	:PCNAME
+	.DEFINE .ENDORG [] [PCNAME = .
+];.ENDORG
+	.DEFINE .RELOC [] [.USE[PCNAME]
+];.RELOC
+ LIST ];.USE
+
+;.ORG[<location>]
+;Assemble into fixed location.  This should be used instead of : as it will
+;remember to previous location.
+	.DEFINE .ORG[ABSLOC] [ XLIST
+	.ENDORG
+	:ABSLOC
+	.DEFINE .ENDORG [] [LSTORG = .
+];.ENDORG
+ LIST ];.ORG
+
+;.OPCODE[<location>]
+;Assemble into fixed location.  This should be used instead of : as it will
+;remember to previous location.
+	.DEFINE .OPCODE[OPVAL] [XLIST 
+	.ENDORG
+	:INST-DISP + 2 * OPVAL
+	.DEFINE .ENDORG [] [ LASTORG = .
+];.ENDORG
+ LIST		 ];.OPCODE
+
+;.ENDORG
+;Normally used to keep track of areas to assemble into.  This should be called
+;before using :<number> as it is used to remember that last location used in an
+;area.
+	.DEFINE .ENDORG []
+[];.DEFINE .ENDORG

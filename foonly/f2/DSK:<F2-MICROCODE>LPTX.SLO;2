@@ -1,0 +1,397 @@
+;------------------------------------------------------------------------------
+;
+;   LPT - Lineprinter Interface
+;
+;------------------------------------------------------------------------------
+LPT-UDEV	= 35	;uDevice address **** TEMPORARY
+
+;MAPF fields
+LPT-STATUS	= 1	;Read status register
+;	Bit 20	;(firmware only)	;Slew more paper
+
+;	Bit 21	;-LPT READY		;These three bits only present on F2
+;	Bit 22	;-LPT LOW PAPER
+;	Bit 23	;-LPT PRESENT
+;
+;	Bit 24	;LPT 128		;Rubout seen on WAITS (or slew paper if
+;					;bit 20 is set).
+;	Bit 25	;LPT 96
+;	Bit 26	;Not used
+;
+;	Bit 27	;-LPT ON LINE
+;	Bit 28	;-SYNC LPT OK
+;	Bit 29	;-SYNC LPT DONE
+;
+;	Bit 30	;SYNC ANY INT
+;	Bit 31	;SYNC DMA WAITING
+LPT-CONTROL	= 1	;Set control register
+;	Bit 16	;LPT STATUS SPARE
+;	Bit 17	;LPT INT ENB
+LPT-DATA	= 2	;Write data
+;	Bit 26	;LPT SPARE OUT
+;	Bit 27	;LPT PRINT CMD
+;	Bit 28	;LPT DATA BIT 8
+;	...
+;	Bit 35	;LPT DATA BIT 1
+
+
+;A-MEM usage
+LPT-DISP = 0		;Instruction and interrupt dispatch
+LPT-CONSAV = 1		;Save control information including PI channel
+LPT-WORD = 3		;Last data word read
+LPT-ROT = 4		;Rotation value for next byte or -n if none left
+LPT-POS = 5		;Column position of the character
+
+;------------------------------------------------------------------------------
+;	Normal IOT dispatch for LPT
+;------------------------------------------------------------------------------
+	.org[lptdsp]		;*$*$* TEMPORARY *$*$*$
+LPT-DISPATCH:
+;BLKI LPT, - Not implemented
+	JUMP[MUUO] $
+	NOP $
+;DATAI LPT,
+	COND[-INTRPT] JUMP[.] SHORT $
+		;Wait for something to happen.
+	ALU[0] DEST[MEMSTO] MEMST $
+		;Do same thing as DATAI LPT would, i.e. read nothing.
+;BLKO LPT, - Not implemented yet
+	JUMP[MUUO] $
+	NOP $
+;DATAO LPT,
+	FIXM1 $
+	D[CONST LPT-UDEV] DEST[DEV-ADR] JUMP[LPTDO2] NORM $
+		;Set device address to LPT
+;CONO LPT,
+	D[CONST LPT-UDEV] DEST[DEV-ADR] JUMP[LPTCO2] $
+		;Set device address to LPT
+	NOP $
+;CONI LPT,
+	D[CONST LPT-UDEV] DEST[DEV-ADR] SPEC[IOB-IN] PUSHJ[LPTSTS] NORM $
+		;Set device code and get status of LPT
+	ALU[Q] DEST[MEMSTO] MEMST $
+		;Store status in memory in the usual way.
+;CONSZ LPT,
+	D[CONST LPT-UDEV] DEST[DEV-ADR] SPEC[IOB-IN] PUSHJ[LPTSTS] NORM $
+		;Set device code and get status of LPT
+	JUMP[XXCONSZ] NORM $
+		;Finish reading status from LPT and go do generalized CONSZ.
+;CONSO LPT,
+	D[CONST LPT-UDEV] DEST[DEV-ADR] SPEC[IOB-IN] PUSHJ[LPTSTS] NORM $
+		;Set device code and get status of LPT
+	JUMP[XXCONSO] NORM $
+		;Finish reading status from LPT and go do generalized CONSZ.
+
+	.reloc	;$*$*$*
+
+;Continuation of CONO LPT,
+;Set control status
+LPTCO2:	D[IR] ROT[25.] COND[OBUS<0] PUSHJ[LPTRST] C550 $
+		;Reset LPT if bit 25 (clear printer) is on
+	D[IR] MASK[22] DEST[Q] SHORT $
+		;Use immediate form, i.e. Instruction as data.
+		;Setup control information
+	D[CONST 23] ROT[6] ALU[D&Q] COND[OBUS=0] JUMP[LPTCO3] C550 $
+		;If setting DONE, BUSY or doing CLEAR, then enable micro
+		;interrupts so that BUSY gets cleared and DONE set at the
+		;appropriate times
+	D[CONST 1] ROT[18.] ALU[DORQ] DEST[Q] NORM $
+		;Turn on micro interrupts
+LPTCO3:	ALU[Q] DEST[IOD] SPEC[IOB-OUT] NORM $
+		;Start sending control information to LPT interface
+	MAPF[LPT-CONTROL] CYLEN[IOB-OUT] D[CONST 1] ROT[35. - 25.]
+			ALU[-D&Q] DEST[LPT-CONSAV] DEST-A-MEM $
+		;Save control information with reset bit
+	D[LPT-CONSAV] ROT[29.] SPEC[MA_PC] DEST[MA]
+			COND[OBUS<0] JUMP[MAIN1] NORM $
+		;Check done bit
+		;and start next instruction
+	JUMP[LPTNT2] NORM $
+		;Done bit set.  Try interrupt
+
+;------------------------------------------------------------------------------
+;Get LPT status
+;
+;Call with:	SPEC[IOB-IN] PUSHJ[LPTSTS] $
+;------------------------------------------------------------------------------
+LPTSTS:	MAPF[LPT-STATUS] CYLEN[IOB-IN] D[IOD] MASK[15.] DEST[Q] $
+		;Finish reading status.
+		;Ignore stuff not being driven
+	D[MASK 8.] ALU[-D&Q] DEST[Q] NORM $
+		;Turn off bits where PI channels and done/busy bits go.
+	D[CONST 1] ROT[35. - 26.] ALU[-D&Q] DEST[Q] NORM $
+		;Turn off unimplemented bit (it's line overflow at SAIL)
+.REPEAT 1 - WAITS [
+	D[10 + LPT-CONSAV] MASK[8] ALU[DORQ] DEST[Q] POPJ NORM $
+		;Fill in PI channels and we're done for now.
+];.REPEAT 1 - WAITS
+.REPEAT WAITS [
+	D[10 + LPT-CONSAV] MASK[8] ALU[DORQ] DEST[Q] NORM $
+		;Fill in PI channels
+	D[10 + LPT-CONSAV] ROT[1 + 24.] MASK[1] DEST[AR] NORM $
+		;Rubout flag on?
+	D[AR] ROT[35. - 24.] ALU[DORQ] DEST[Q] POPJ $
+		;Yes, return in CONI word instead of 128-character drum bit.
+];.REPEAT WAITS
+
+;Continuation of DATAO LPT,
+LPTDO2:	D[10 + LPT-CONSAV] DEST[Q] NORM $
+		;Get status word
+	D[CONST 1] ROT[6] ALU[-D&Q] DEST[Q] NORM $
+		;Turn off DONE
+	D[CONST 2] ROT[6] ALU[DORQ] DEST[LPT-CONSAV] DEST-A-MEM NORM $
+		;Turn on BUSY
+	D[MEM] SPEC[LEFT] COND[-OBUS=0] JUMP[LPTPK7] C550 $
+		;Decide which format to use
+	D[MEM] DEST[IOD] SPEC[IOB-OUT] NORM $
+		;Send single character to LPT
+	MAPF[LPT-DATA] CYLEN[IOB-OUT]
+			d[const 7] lload $
+		;Finish outputting data
+		;Begin delaying tactic (4 usec)
+	loop[.] c500 $
+	D[CONST 1] ROT[18.] ALU[DORQ] DEST[IOD] SPEC[IOB-OUT] short $
+		;Set control information and enable micro-interrupts.
+	MAPF[LPT-CONTROL] CYLEN[IOB-OUT] SPEC[MA_PC] DEST[MA] JUMP[MAIN1] $
+		;Finish output and start fetch of next instruction
+
+;-------------------------------------------------------------------------------
+;
+; Output word in PDP-10 ASCII format
+;
+;-------------------------------------------------------------------------------
+LPTPK7:	D[CONST (1 + 4 * 7)] DEST[LPT-ROT] DEST-A-MEM NORM $
+		;Setup initial rotation for fetching first byte from word
+	D[MEM] DEST[LPT-WORD] DEST-A-MEM NORM $
+		;Save word from memory in A-MEM where we can use it during
+		;micro-interrupts
+LPTP7A:	D[10 + LPT-ROT] DEST[Q] NORM $
+		;Setup rotator
+	D[CONST 36.] ALU[D-Q] DEST[ROTR] NORM $
+		;Doing this here is easier than comparing against 35.
+		;That is, this way we count down 29,22,15,8,1,-6 or
+		;perhaps 30,24,18,12,6,0,-6
+	D[10 + LPT-WORD] ROT[R] MASK[7] DEST[Q AR] NORM $
+		;Fetch byte from word
+	D[10 + LPT-CONSAV] ROT[24.] COND[OBUS<0] JUMP[LPTP7B] C550 $
+		;Jump if alternate character set bit set (rubout seen)
+		;or slewing paper (if bit 20 is set)
+	D[AR] ROT[1 + 30.] MASK[2] COND[OBUS=0] JUMP[LPTP7F] C550 $
+		;Jump if control character
+	D[MASK 7] ALU[D#Q] COND[-OBUS=0] JUMP[LPTP7C] C550 $
+		;Jump if NOT a rubout
+	D[10 + LPT-CONSAV] DEST[Q] NORM $
+	D[CONST 1] ROT[35. - 24.] ALU[DORQ] DEST[LPT-CONSAV] DEST-A-MEM
+			JUMP[LPTP7D] NORM $
+		;OR in alternate character set bit (rubout seen)
+;	---
+;Rubout has been seen, meaning alternate character (hidden character) is
+;to be printed, or slewing paper if bit 20 set.
+LPTP7B:	D[10 + LPT-CONSAV] ROT[20.] COND[OBUS<0] JUMP[LPTSL2] NORM $
+	D[10 + LPT-CONSAV] DEST[Q] NORM $
+LPTSLE:	D[CONST 1] ROT[35. - 24.] ALU[-D&Q] DEST[LPT-CONSAV] DEST-A-MEM NORM $
+		;Turn off alternate character set bit (rubout seen) and slew
+		;paper bit
+	D[CONST 2] ROT[6] DEST[Q] SHORT $
+	D[10 + LPT-WORD] ROT[R] MASK[7] ALU[DORQ] DEST[Q] NORM $
+		;Turn on 200 bit
+;	\ /
+;Character is a normal character (or is ready to print)
+LPTP7C:	ALU[Q] DEST[IOD] SPEC[IOB-OUT] SHORT $
+		;Send out character
+LPTP7D:	MAPF[LPT-DATA] CYLEN[IOB-OUT] D[10 + LPT-POS] ALU[D+1] DEST[Q] $
+		;Finish sending character.  Advance simulated printhead
+LPTP7S:	ALU[Q] DEST[LPT-POS] DEST-A-MEM NORM $
+;Character has been processed.  Advance to next byte or word.
+LPTP7E:	D[10 + LPT-ROT] DEST[Q] NORM $
+	D[CONST 7] ALU[Q-D] DEST[LPT-ROT] DEST-A-MEM
+			COND[OBUS<0] JUMP[LPTIEN] C550 $
+		;Advance byte pointer and check for end of word
+	SPEC[IOB-IN] SHORT $
+		;Start reading status from hardware
+	MAPF[LPT-STATUS] CYLEN[IOB-IN] D[IOD] ROT[35. - 29.] ALU[D#Q] MASK[3]
+			COND[OBUS=0] JUMP[LPTP7A] $
+		;If LPT is still ready to accept data, send some more.
+;	\ /
+;Enable micro-interrupts so that we can finish processing this word later.
+;**** Use LONG to compensate for hardware bug !!!!
+LPTIEN:	MAPF[LPT-DATA] CYLEN[long] D[10 + LPT-CONSAV] DEST[Q] $
+		;Finish sending data in case of unpacked data
+	D[CONST 1] ROT[18.] ALU[DORQ] DEST[IOD] SPEC[IOB-OUT] long $
+		;Set micro-interrupt enable and status
+	MAPF[LPT-CONTROL] CYLEN[long]
+			SPEC[MA_PC] DEST[MA CLR-DEV-FROM-INTR] JUMP[MAIN1] $
+		;Finish enabling interrupts and start new instruction
+
+;Interpret control characters
+LPTP7F:	D[CONST 10] ALU[Q-D] DEST[Q] COND[OBUS<0] JUMP[LPTP7I] C550 $
+		;Jump if less than ^H
+;;;	D[CONST 20] ALU[Q-D] COND[-OBUS<0] JUMP[LPTP7I] C550 $
+;;;		;Jump if greater than ^W
+	D[CONST 15] ALU[Q-D] COND[-OBUS<0] JUMP[LPTP7I] C550 $
+		;Jump if greater than ^S
+	D[10 + LPT-DISP] MASK[18.] ALU[D-Q-1] SDISP CYLEN[DISP] $
+		;Branch according to control code.  Table immediately
+		;precedes interrupt location
+;Control character is ignored (sort of) but also clear column position(?)
+LPTP7I:	MAPF[LPT-DATA] CYLEN[IOB-OUT]
+			ALU[0] DEST[LPT-POS] DEST-A-MEM JUMP[LPTP7E] $
+
+;TAB expansion
+LPTHT:	D[10 + LPT-POS] DEST[Q] NORM $
+		;Get ready to expand tables
+LPTHT1:	ALU[Q+1] DEST[Q] SPEC[IOB-OUT] NORM $
+		;Advance to next column and send a space
+	MAPF[LPT-DATA] CYLEN[IOB-OUT]
+			D[MASK 3] ALU[D&Q] COND[OBUS=0] JUMP[LPTP7S] $
+		;Jump if done with tab, else read status from LPT
+	MAPF[LPT-STATUS] CYLEN[IOB-IN]
+			D[IOD] ROT[35. - 29.] MASK[3] COND[OBUS=0] JUMP[LPTHT1] $
+		;Repeat if LPT is still ready for data
+	ALU[Q] DEST[LPT-POS] DEST-A-MEM JUMP[LPTP7E] NORM $
+		;Save position and enable micro-interrupts
+
+;Paper moving operation
+LPTPAP:	D[CONST 4] ROT[6] ALU[D+Q] DEST[IOD] SPEC[IOB-OUT] JUMP[LPTP7I] $
+		;Send out paper command and go clear column control
+
+;Slew specific amount of paper
+LPTSL1:	D[CONST 21] ROT[35. - 24.] ALU[DORQ] DEST[LPT-CONSAV] DEST-A-MEM
+			JUMP[LPTP7E] NORM $
+		;Turn on alternate bit and slew paper bit
+		;Get next byte or interrupt.
+;Return here after getting byte.
+LPTSL2:	ALU[0] DEST[LPT-POS] DEST-A-MEM SHORT $
+		;Make sure column position is cleared, first!
+	D[CONST 16] ALU[D-Q] COND[-OBUS<0] JUMP[LPTSL3] C550 $
+		;Jump if this takes more than one Printronix command
+	D[CONST 70] ROT[3] ALU[D+Q] DEST[IOD] SPEC[IOB-OUT] NORM $
+		;Make into paper slewing command for Printronix
+	MAPF[LPT-DATA] CYLEN[IOB-OUT] D[10 + LPT-CONSAV] DEST[Q] JUMP[LPTSLE] $
+		;Finish commands
+;More than one Printronix command is required.
+LPTSL3:	D[10 + LPT-ROT] DEST[ROTR] SHORT $
+		;Setup rotation to decrement lines slewed
+	D[10 + LPT-WORD] DEST[Q] SHORT $
+		;Get word
+	D[CONST 16] DEST[AR] SHORT $
+		;Thank you very much, P. Petit
+	D[AR] ROT[R] ALU[Q-D] DEST[LPT-WORD] DEST-A-MEM $
+		;Decrement number of lines slewed
+	D[CONST (416 / 4)] ROT[2] DEST[IOD] SPEC[IOB-OUT] NORM JUMP[LPTIEN] $
+		;Set command to slew 16 (octal) lines of paper and enable
+		;interrupts.  We will come back to LPTSL2 with the same byte
+		;we were working on before, but decremented from original.
+
+;27  ?
+;;;	D[CONST (10. - 1)] DEST[Q] JUMP[LPTPAP] NORM $
+		;Set forms channel and send paper command
+;26  ?
+;;;	D[CONST (9. - 1)] DEST[Q] JUMP[LPTPAP] NORM $
+		;Set forms channel and send paper command
+;25  ?
+;;;	D[CONST (8. - 1)] DEST[Q] JUMP[LPTPAP] NORM $
+		;Set forms channel and send paper command
+;24  DC4
+	D[CONST (6 - 1)] DEST[Q] JUMP[LPTPAP] NORM $
+		;Set forms channel and send paper command
+;23  DC3
+	D[CONST (5 - 1)] DEST[Q] JUMP[LPTPAP] NORM $
+		;Set forms channel and send paper command
+;22  DC2
+	D[CONST (4 - 1)] DEST[Q] JUMP[LPTPAP] NORM $
+		;Set forms channel and send paper command
+;21  DC1
+	D[CONST (3 - 1)] DEST[Q] JUMP[LPTPAP] NORM $
+		;Set forms channel and send paper command
+;20  DLE
+	D[CONST (2 - 1)] DEST[Q] JUMP[LPTPAP] NORM $
+		;Set forms channel and send paper command
+;17  SO
+	D[AR] DEST[IOD] JUMP[LPTP7E] NORM $
+		;Ignore for now
+;16  SI
+	D[AR] DEST[IOD] JUMP[LPTP7E] NORM $
+		;Ignore for now
+;15  CR
+	D[AR] DEST[IOD] SPEC[IOB-OUT] JUMP[LPTP7I] NORM $
+		;Send CR directly to printer.  Clear column counter
+;14  FF
+;;;	D[CONST (1 - 1)] DEST[Q] JUMP[LPTPAP] NORM $
+;;;		;Set forms channel and send paper command
+	D[AR] DEST[IOD] SPEC[IOB-OUT] JUMP[LPTP7I] NORM $
+		;Send FF directly to printer.  Clear column counter
+;13  VT
+	D[CONST (7 - 1)] DEST[Q] JUMP[LPTPAP] NORM $
+		;Set forms channel and send paper command
+;12  LF
+	D[AR] DEST[IOD] SPEC[IOB-OUT] JUMP[LPTP7I] NORM $
+		;Send LF directly to printer.  Clear column counter
+;11  TAB
+	D[CONST 40] DEST[IOD] JUMP[LPTHT] NORM $
+		;Put a <space> onto IO bus and start counting them as they
+		;are sent
+;10  BS
+	JUMP[LPTP7E] NORM $
+		;Ignore <backspace> for now
+;7   (BELL) Slew N lines
+	D[10 + LPT-CONSAV] DEST[Q] JUMP[LPTSL1] NORM $
+;End of control character decode table.  It is in reverse order in order to
+;immediately preceded LPTINT and thus save A-MEM space and microcode
+;------------------------------------------------------------------------------
+;
+;	LPT Interrupt Code
+;
+;------------------------------------------------------------------------------
+;This code is immediately preceded by the control character decode table
+LPTINT:
+;;;Kludge to get around hardware bug
+	DEST[CLR-DEV-FROM-INTR] SHORT $
+	D[CONST LPT-UDEV] DEST[DEV-ADR] NORM $
+;;;End kludge to get around hardware bug
+	D[10 + LPT-CONSAV] MASK[18.] DEST[IOD] SPEC[IOB-OUT] NORM $
+		;Turn off micro-interrupts
+	MAPF[LPT-CONTROL] CYLEN[IOB-OUT]
+			D[10 + LPT-ROT] COND[-OBUS<0] JUMP[LPTP7A] $
+		;Finish output
+		;Check for more characters to process
+	D[10 + LPT-CONSAV] DEST[Q] NORM $
+		;Get status word
+	D[CONST 2] ROT[6] ALU[-D&Q] DEST[Q] NORM $
+		;Turn off BUSY
+	D[CONST 1] ROT[6] ALU[DORQ] DEST[LPT-CONSAV] DEST-A-MEM NORM $
+		;Turn on DONE
+LPTNT2:	D[10 + LPT-CONSAV] MASK[3] DEST[AR] COND[-OBUS=0] JUMP[PIGEN] C550 $
+		;Set PI channel and take macro-interrupt if enabled.
+	SPEC[MA_PC] DEST[MA CLR-DEV-FROM-INTR] JUMP[MAIN1] NORM $
+		;Start fetching instruction and dismiss interrupt
+
+
+;------------------------------------------------------------------------------
+;Reset LPT: Set interrupt and dispatch addresses
+;------------------------------------------------------------------------------
+LPTRST:
+;;;	D[CONST LPT-UDEV] DEST[DEV-ADR] JUMP[. + 1] NORM $
+		;Set device address
+	ALU[0] DEST[LPT-CONSAV] DEST-A-MEM NORM $
+	D[LPT-CONSAV] DEST[IOD] SPEC[IOB-OUT] NORM $
+		;Clear out interface
+	D[CONST (LPT-DISPATCH / 100)] ROT[30] DEST[Q] SPEC[IOB-OUT]
+			MAPF[LPT-CONTROL] CYLEN[IOB-OUT] $
+		;Finish setting control register in hardware
+		;Construct dispatch address: high 6 bits.
+		;Start clear data register in hardware
+	D[CONST (LPT-DISPATCH \ 100)] ROT[22] ALU[DORQ] DEST[Q]
+			MAPF[LPT-DATA] CYLEN[IOB-OUT] $
+		;Finish clear data register in hardware
+		;Low 6 bits of dispatch address
+	D[CONST (LPTINT / 100)] ROT[6] ALU[DORQ] DEST[Q] NORM $
+		;Construct interrupt address: high 6 bits
+	D[CONST (LPTINT \ 100)] ALU[DORQ] DEST[LPT-DISP] DEST-A-MEM NORM$
+		;Finish contructing interrupt address and store away.
+	ALU[0] DEST[LPT-POS] DEST-A-MEM NORM $
+		;Clear column position
+	ALU[-1] DEST[LPT-ROT] DEST-A-MEM NORM POPJ $
+		;No bytes left in this word
+		;We're done.
+

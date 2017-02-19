@@ -1,0 +1,807 @@
+01 0001  	
+01 0002  	
+01 0003  	;MEMTST  Memory diagnostic
+01 0004  	;128k, new tape ctrl version
+01 0005  	
+01 0006  1 	NMEMS = 1       ;Test only 128k words.
+01 0007  	
+01 0008  	XLIST
+01m0009                               	LIST
+01m0009                               	
+01m0009       1	NTP = 1  ;NEW TAPE CONTROLLER
+01m0009                               	
+01m0009                               	.INSERT MEMTST
+
+SLOE   Jan ***, 1859 00:00:03  file DSK:MEMTST.SLO  --  of -- MEMT1
+
+01m0001                               	;;; MEMTST - F2/F3 memory tester. 
+01m0001                               	;Version of 1/19/81  DWP
+01m0001                               	
+01m0001                               	;Header file defines NMEMS, which controls the amount of
+01m0001                               	; memory to be tested.  NMEMS = the number of card-pairs to
+01m0001                               	; be tested.
+01m0001                               	
+01m0001       0	OTP = 1 - NTP
+01m0001                               	
+01m0001                               	.REPEAT NTP [
+01m0001       0	TTY.DI = 0      ;read data
+01m0001       12	TTY.WD = 12     ;write data
+01m0001       14	TTY.WC = 14     ;write control
+01m0001                               	  ];NTP
+01m0001                               	
+01m0001                               	.REPEAT OTP [
+01m0001                               	;OTP
+01m0001                               	
+01m0001                               	: 2000
+01m0001                               	
+01m0001 02000 640341614571000040002001	INIT:   D[CONST 4] DEST[DEV-ADR] JPOP[. + 1] NORM $
+01m0001 02001 640340014171014040002002	        D[CONST 4] ROT[6] DEST[Q] NORM JPOP[. + 1] $
+01m0001 02002 640702400571000440000000	        DEST[CLR-DEV-FROM-INTR] NORM $
+01m0001 02003 640700014175000740000000	        D[CONST 74] ALU[DORQ] DEST[Q] NORM $
+01m0001 02004 640702214575014033600000	        D[CONST 3] ROT[6] ALU[DORQ] DEST[IOD] SPEC[IOB-OUT] NORM $
+01m0001 02005 440340000571000440142006	        MAPF[TTY.WC] CYLEN[IOB-OUT] JPOP[. + 1] $
+01m0001 02006 640342200555000443602007	        ALU[Q] DEST[IOD] SPEC[IOB-OUT] JPOP[. + 1] NORM $
+01m0001 02007 440340000571000440142010	        MAPF[TTY.WC] CYLEN[IOB-OUT] JPOP[. + 1] $
+01m0001                               	
+01m0001                               	 .IF NMEMS > 2
+01m0001                               	   [    01m0001                               	;IF NMEMS > 2
+01m0001                               	
+01m0001                               	 ;; Now we clear memory.
+01m0001 02010 640722600615000440000000	        ALU[0] DEST[MA HI-ABS-MA] NORM $
+01m0001 02011 640704200615000440000000	ZLOOP:  ALU[0] DEST[MEMSTO] NORM $
+01m0001 02012 640722624033000440000000	        D[MA] ALU[D+1] DEST[Q MA HI-ABS-MA] NORM $
+01m0001                               	                ;Advance to next location.
+01m0001 02013 030140014537042010002011	        D[CONST NMEMS] ROT[17.] ALU[D-Q] -OBUS=0 JUMP[ZLOOP] $
+01m0001                               	                ;Check for the XEND-of memory.  Loop if not.
+01m0001 02014 000343600571000440002015	        DEST[CLR-MI-ERR] JPOP[. + 1] $
+01m0001                               	
+01m0001                               	.DEFINE TYPLET 01m0001                               	
+01m0001                               	.DEFINE TYPSPC 01m0001                               	         ; prnt <SPACE> 
+01m0001                               	
+01m0001                               	        TYPLET[01m0001 02015 640040014171000150000000	D[CONST 15] DEST[Q] PUSHJ[LTYP] NORM ]$ ;"M"
+01m0001                               	        TYPLET[01m0001 02016 640040014171000050000000	D[CONST 05] DEST[Q] PUSHJ[LTYP] NORM ]$ ;"E"
+01m0001                               	        TYPLET[01m0001 02017 640040014171000150000000	D[CONST 15] DEST[Q] PUSHJ[LTYP] NORM ]$ ;"M"
+01m0001                               	        TYPLET[01m0001 02020 640040014171000240000000	D[CONST 24] DEST[Q] PUSHJ[LTYP] NORM ]$ ;"T"
+01m0001                               	        TYPLET[01m0001 02021 640040014171000230000000	D[CONST 23] DEST[Q] PUSHJ[LTYP] NORM ]$ ;"S"
+SLOE   Jan ***, 1859 00:00:03  file STRING:  --  of -- MEMT1
+
+01m0001                               	        TYPLET[01m0001 02022 640040014171000240000000	D[CONST 24] DEST[Q] PUSHJ[LTYP] NORM ]$ ;"T"
+01m0001 02023 000040000571000440000000	        PUSHJ[TCR] $    ;<return><linefeed>
+01m0001 02024 640341614571000010000000	STRTLP: D[CONST 1] DEST[DEV-ADR] NORM JPOP[TESTS] $
+01m0001                               	
+01m0001                               	 .DEFINE TEST 01m0001                               	 .DEFINE TESTA 01m0001                               	 .DEFINE TESTC 01m0001                               	
+01m0001       0	TNUM = 0 ;Sequence no. of test currently running (typed on errors)
+01m0001                               	
+01m0001                               	TESTS:  TEST[01m0001 02025 640050010571000000002027	D[MASK 0] DEST[AR] PUSHJ[. + 2] NORM $
+01m0001                               	                ;Setup thing to test with
+01m0001 02026 000140000571000440000000	        JUMP[ZTSTX] $   ;Go to next test.
+01m0001       1	  TNUM = TNUM + 1  ;Increment test seq. no.
+01m0001 02027 000041014571000013000000	        D[CONST TNUM] DEST[4] DEST-A-MEM PUSHJ[LDLTS1] $
+01m0001                               	          ;Put it where error typeouts can find it.
+01m0001 02030 640722600615000440000000	        ALU[0] DEST[MA HI-ABS-MA] NORM $
+01m0001                               	                ;Start at memory address 0
+01m0001 02031 640714200571002440000000	ZTST:   D[AR] ROT[1] DEST[AR MEMSTO] NORM $
+01m0001                               	                ;Rotate test value and store new value in memory
+01m0001                               	
+01m0001 02032 640723624571000440000000	        D[MA] DEST[MA CLR-MI-ERR] NORM $
+01m0001 02033 640700000171000440000000	        D[AR] DEST[Q] NORM $
+01m0001 02034 470040004735000443400000	        D[MEM] ALU[D#Q] COND[-OBUS=0] START-IN PUSHJ[ERR1X] C600 $
+01m0001                               	                ;Check the result of the examine against what was expected
+01m0001                               	                ;and if no error, prepare to check ECC
+01m0001 02035 030040030571036010020000	        D[IOD] MAPF[2] ROT[17] MASK[1] COND[-OBUS=0] PUSHJ[ERR1X] $
+01m0001                               	         ;JMP if ECC err
+01m0001 02036 640722624033000440000000	        D[MA] ALU[D+1] DEST[Q MA HI-ABS-MA] NORM $
+01m0001                               	                ;Advance to next location
+01m0001 02037 470140014537042010002031	        D[CONST NMEMS] ROT[17.] ALU[D-Q] COND[-OBUS=0] JUMP[ZTST] C600 $
+01m0001                               	                ;Check for XEND-of memory to be tested
+01m0001 02040 640743614571000030000000	        D[CONST 3] DEST[CLR-MI-ERR] LLOAD NORM $
+01m0001                               	                ;Set repeat count for this test and clear error we may
+01m0001                               	                ;have gotten from running off the XEND-of memory
+01m0001 02041 640710010571000000000000	T12:    D[MASK 0] DEST[AR] NORM $
+01m0001                               	                ;Setup same thing to test against
+01m0001 02042 640722600615000440000000	        ALU[0] DEST[MA HI-ABS-MA] NORM $
+01m0001                               	                ;Start again from the beginning of memory
+01m0001                               	                ;Also, fetch first word from memory
+01m0001 02043 640710000171002440000000	T11:    D[AR] ROT[1] DEST[AR Q] NORM $
+01m0001                               	                ;Rotate test value by one and put it where we can
+01m0001                               	                ;test with it easier
+01m0001 02044 470040004735000443400000	        D[MEM] ALU[D#Q] COND[-OBUS=0] START-IN PUSHJ[ERR1] C600 $
+01m0001                               	                ;Check the result of the examine against what was expected
+01m0001                               	                ;and if no error, prepare to check ECC
+01m0001 02045 030040030571036010020000	        D[IOD] MAPF[2] ROT[17] MASK[1] COND[-OBUS=0] PUSHJ[ERR1] $
+01m0001                               	         ;JMP if ECC err
+01m0001 02046 640722624033000440000000	        D[MA] ALU[D+1] DEST[Q MA HI-ABS-MA] NORM $
+01m0001                               	                ;Advance to next location and start the examine
+01m0001 02047 470140014537042010002043	        D[CONST NMEMS] ROT[17.] ALU[D-Q] COND[-OBUS=0] JUMP[T11] C600 $
+01m0001                               	                ;Check for the XEND-of memory.  Loop if not.
+01m0001 02050 640243600571000440002041	        LOOP[T12] DEST[CLR-MI-ERR] NORM $
+01m0001                               	                ;Repeat the examine phase N times.
+01m0001                               	                ;(No more MA 18 jumper!!!)
+SLOE   Jan ***, 1859 00:00:03  file STRING:  --  of -- MEMT1
+
+01m0001 02051 000300000571000440000000	        POPJ $
+01m0001                               	ZTSTX:
+01m0002                               	]       TEST[01m0002 02052 640050010571000440002054	D[MASK 44] DEST[AR] PUSHJ[. + 2] NORM $
+01m0002                               	                ;Setup thing to test with
+01m0002 02053 000140000571000440000000	        JUMP[OTSTX] $   ;Go to next test.
+01m0002       2	  TNUM = TNUM + 1  ;Increment test seq. no.
+01m0002 02054 000041014571000023000000	        D[CONST TNUM] DEST[4] DEST-A-MEM PUSHJ[LDLTS1] $
+01m0002                               	          ;Put it where error typeouts can find it.
+01m0002 02055 640722600615000440000000	        ALU[0] DEST[MA HI-ABS-MA] NORM $
+01m0002                               	                ;Start at memory address 0
+01m0002 02056 640714200571002440000000	OTST:   D[AR] ROT[1] DEST[AR MEMSTO] NORM $
+01m0002                               	                ;Rotate test value and store new value in memory
+01m0002                               	
+01m0002 02057 640723624571000440000000	        D[MA] DEST[MA CLR-MI-ERR] NORM $
+01m0002 02060 640700000171000440000000	        D[AR] DEST[Q] NORM $
+01m0002 02061 470040004735000443400000	        D[MEM] ALU[D#Q] COND[-OBUS=0] START-IN PUSHJ[ERR1X] C600 $
+01m0002                               	                ;Check the result of the examine against what was expected
+01m0002                               	                ;and if no error, prepare to check ECC
+01m0002 02062 030040030571036010020000	        D[IOD] MAPF[2] ROT[17] MASK[1] COND[-OBUS=0] PUSHJ[ERR1X] $
+01m0002                               	         ;JMP if ECC err
+01m0002 02063 640722624033000440000000	        D[MA] ALU[D+1] DEST[Q MA HI-ABS-MA] NORM $
+01m0002                               	                ;Advance to next location
+01m0002 02064 470140014537042010002056	        D[CONST NMEMS] ROT[17.] ALU[D-Q] COND[-OBUS=0] JUMP[OTST] C600 $
+01m0002                               	                ;Check for XEND-of memory to be tested
+01m0002 02065 640743614571000030000000	        D[CONST 3] DEST[CLR-MI-ERR] LLOAD NORM $
+01m0002                               	                ;Set repeat count for this test and clear error we may
+01m0002                               	                ;have gotten from running off the XEND-of memory
+01m0002 02066 640710010571000440000000	T22:    D[MASK 44] DEST[AR] NORM $
+01m0002                               	                ;Setup same thing to test against
+01m0002 02067 640722600615000440000000	        ALU[0] DEST[MA HI-ABS-MA] NORM $
+01m0002                               	                ;Start again from the beginning of memory
+01m0002                               	                ;Also, fetch first word from memory
+01m0002 02070 640710000171002440000000	T21:    D[AR] ROT[1] DEST[AR Q] NORM $
+01m0002                               	                ;Rotate test value by one and put it where we can
+01m0002                               	                ;test with it easier
+01m0002 02071 470040004735000443400000	        D[MEM] ALU[D#Q] COND[-OBUS=0] START-IN PUSHJ[ERR1] C600 $
+01m0002                               	                ;Check the result of the examine against what was expected
+01m0002                               	                ;and if no error, prepare to check ECC
+01m0002 02072 030040030571036010020000	        D[IOD] MAPF[2] ROT[17] MASK[1] COND[-OBUS=0] PUSHJ[ERR1] $
+01m0002                               	         ;JMP if ECC err
+01m0002 02073 640722624033000440000000	        D[MA] ALU[D+1] DEST[Q MA HI-ABS-MA] NORM $
+01m0002                               	                ;Advance to next location and start the examine
+01m0002 02074 470140014537042010002070	        D[CONST NMEMS] ROT[17.] ALU[D-Q] COND[-OBUS=0] JUMP[T21] C600 $
+01m0002                               	                ;Check for the XEND-of memory.  Loop if not.
+01m0002 02075 640243600571000440002066	        LOOP[T22] DEST[CLR-MI-ERR] NORM $
+01m0002                               	                ;Repeat the examine phase N times.
+01m0002                               	                ;(No more MA 18 jumper!!!)
+01m0002 02076 000300000571000440000000	        POPJ $
+01m0002                               	OTSTX:
+01m0003                               	]       TESTA[01m0003 02077 640062600615000440002101	ALU[0] DEST[MA HI-ABS-MA] PUSHJ[. + 2] NORM $
+01m0003                               	                ;Start at memory address 0
+01m0003 02100 000140000571000440000000	        JUMP[ADRRX] $   ;Go to next test.
+01m0003       3	  TNUM = TNUM + 1  ;Increment test seq. no.
+01m0003 02101 000041014571000033000000	        D[CONST TNUM] DEST[4] DEST-A-MEM PUSHJ[LDLTS1] $
+01m0003                               	          ;Put it where error typeouts can find it.
+SLOE   Jan ***, 1859 00:00:03  file STRING:  --  of -- MEMT1
+
+01m0003 02102 640714224571000440000000	ADRR:   D[MA] ROT[0] ALU[D] DEST[AR MEMSTO] NORM $
+01m0003                               	                ;Perform function D on MA and store it
+01m0003                               	
+01m0003 02103 640723624571000440000000	        D[MA] DEST[MA CLR-MI-ERR] NORM $
+01m0003 02104 640700000171000440000000	        D[AR] DEST[Q] NORM $
+01m0003 02105 470040004735000443400000	        D[MEM] ALU[D#Q] COND[-OBUS=0] START-IN PUSHJ[ERR1X] C600 $
+01m0003                               	                ;Check the result of the examine against what was expected
+01m0003                               	                ;and if no error, prepare to check ECC
+01m0003 02106 030040030571036010020000	        D[IOD] MAPF[2] ROT[17] MASK[1] COND[-OBUS=0] PUSHJ[ERR1X] $
+01m0003                               	         ;JMP if ECC err
+01m0003 02107 640722624033000440000000	        D[MA] ALU[D+1] DEST[Q MA HI-ABS-MA] NORM $
+01m0003                               	                ;Advance to next location
+01m0003 02110 470140014537042010002102	        D[CONST NMEMS] ROT[17.] ALU[D-Q] COND[-OBUS=0] JUMP[ADRR] C600 $
+01m0003                               	                ;Check for XEND-of memory to be tested
+01m0003 02111 640743614571000030000000	        D[CONST 3] DEST[CLR-MI-ERR] LLOAD NORM $
+01m0003                               	                ;Set repeat count for this test and clear error we may
+01m0003                               	                ;have gotten from running off the XEND-of memory
+01m0003 02112 640722600615000440000000	A12:    ALU[0] DEST[MA HI-ABS-MA] NORM $
+01m0003                               	                ;Start again from the beginning of memory
+01m0003                               	                ;Also, fetch first word from memory
+01m0003 02113 640710024171000440000000	A11:    D[MA] ROT[0] ALU[D] DEST[AR Q] NORM $
+01m0003                               	                ;Apply function D to MA and put it where we can
+01m0003                               	                ;test with it easier
+01m0003 02114 470040004735000443400000	        D[MEM] ALU[D#Q] COND[-OBUS=0] START-IN PUSHJ[ERR1] C600 $
+01m0003                               	                ;Check the result of the examine against what was expected
+01m0003                               	                ;and if no error, prepare to check ECC
+01m0003 02115 030040030571036010020000	        D[IOD] MAPF[2] ROT[17] MASK[1] COND[-OBUS=0] PUSHJ[ERR1] $
+01m0003                               	         ;JMP if ECC err
+01m0003 02116 640722624033000440000000	        D[MA] ALU[D+1] DEST[Q MA HI-ABS-MA] NORM $
+01m0003                               	                ;Advance to next location and start the examine
+01m0003 02117 470140014477042010002113	        D[CONST NMEMS] ROT[17.] ALU[Q-D] COND[-OBUS=0] JUMP[A11] C600 $
+01m0003                               	                ;Check for the XEND-of memory.  Loop if not.
+01m0003 02120 640243600571000440002112	        LOOP[A12] DEST[CLR-MI-ERR] NORM $
+01m0003                               	                ;Repeat the examine phase N times.
+01m0003                               	                ;(No more MA 18 jumper!!!)
+01m0003 02121 000300000571000440000000	        POPJ $
+01m0003                               	ADRRX:
+01m0004                               	]       TESTA[01m0004 02122 640062600615000440002124	ALU[0] DEST[MA HI-ABS-MA] PUSHJ[. + 2] NORM $
+01m0004                               	                ;Start at memory address 0
+01m0004 02123 000140000571000440000000	        JUMP[ADRRNX] $  ;Go to next test.
+01m0004       4	  TNUM = TNUM + 1  ;Increment test seq. no.
+01m0004 02124 000041014571000043000000	        D[CONST TNUM] DEST[4] DEST-A-MEM PUSHJ[LDLTS1] $
+01m0004                               	          ;Put it where error typeouts can find it.
+01m0004 02125 640714224771000440000000	ADRRN:  D[MA] ROT[0] ALU[NOTD] DEST[AR MEMSTO] NORM $
+01m0004                               	                ;Perform function NOTD on MA and store it
+01m0004                               	
+01m0004 02126 640723624571000440000000	        D[MA] DEST[MA CLR-MI-ERR] NORM $
+01m0004 02127 640700000171000440000000	        D[AR] DEST[Q] NORM $
+01m0004 02130 470040004735000443400000	        D[MEM] ALU[D#Q] COND[-OBUS=0] START-IN PUSHJ[ERR1X] C600 $
+01m0004                               	                ;Check the result of the examine against what was expected
+01m0004                               	                ;and if no error, prepare to check ECC
+01m0004 02131 030040030571036010020000	        D[IOD] MAPF[2] ROT[17] MASK[1] COND[-OBUS=0] PUSHJ[ERR1X] $
+01m0004                               	         ;JMP if ECC err
+01m0004 02132 640722624033000440000000	        D[MA] ALU[D+1] DEST[Q MA HI-ABS-MA] NORM $
+01m0004                               	                ;Advance to next location
+01m0004 02133 470140014537042010002125	        D[CONST NMEMS] ROT[17.] ALU[D-Q] COND[-OBUS=0] JUMP[ADRRN] C600 $
+SLOE   Jan ***, 1859 00:00:03  file STRING:  --  of -- MEMT1
+
+01m0004                               	                ;Check for XEND-of memory to be tested
+01m0004 02134 640743614571000030000000	        D[CONST 3] DEST[CLR-MI-ERR] LLOAD NORM $
+01m0004                               	                ;Set repeat count for this test and clear error we may
+01m0004                               	                ;have gotten from running off the XEND-of memory
+01m0004 02135 640722600615000440000000	A22:    ALU[0] DEST[MA HI-ABS-MA] NORM $
+01m0004                               	                ;Start again from the beginning of memory
+01m0004                               	                ;Also, fetch first word from memory
+01m0004 02136 640710024371000440000000	A21:    D[MA] ROT[0] ALU[NOTD] DEST[AR Q] NORM $
+01m0004                               	                ;Apply function NOTD to MA and put it where we can
+01m0004                               	                ;test with it easier
+01m0004 02137 470040004735000443400000	        D[MEM] ALU[D#Q] COND[-OBUS=0] START-IN PUSHJ[ERR1] C600 $
+01m0004                               	                ;Check the result of the examine against what was expected
+01m0004                               	                ;and if no error, prepare to check ECC
+01m0004 02140 030040030571036010020000	        D[IOD] MAPF[2] ROT[17] MASK[1] COND[-OBUS=0] PUSHJ[ERR1] $
+01m0004                               	         ;JMP if ECC err
+01m0004 02141 640722624033000440000000	        D[MA] ALU[D+1] DEST[Q MA HI-ABS-MA] NORM $
+01m0004                               	                ;Advance to next location and start the examine
+01m0004 02142 470140014477042010002136	        D[CONST NMEMS] ROT[17.] ALU[Q-D] COND[-OBUS=0] JUMP[A21] C600 $
+01m0004                               	                ;Check for the XEND-of memory.  Loop if not.
+01m0004 02143 640243600571000440002135	        LOOP[A22] DEST[CLR-MI-ERR] NORM $
+01m0004                               	                ;Repeat the examine phase N times.
+01m0004                               	                ;(No more MA 18 jumper!!!)
+01m0004 02144 000300000571000440000000	        POPJ $
+01m0004                               	ADRRNX:
+01m0005                               	]       TESTA[01m0005 02145 640062600615000440002147	ALU[0] DEST[MA HI-ABS-MA] PUSHJ[. + 2] NORM $
+01m0005                               	                ;Start at memory address 0
+01m0005 02146 000140000571000440000000	        JUMP[ADRLX] $   ;Go to next test.
+01m0005       5	  TNUM = TNUM + 1  ;Increment test seq. no.
+01m0005 02147 000041014571000053000000	        D[CONST TNUM] DEST[4] DEST-A-MEM PUSHJ[LDLTS1] $
+01m0005                               	          ;Put it where error typeouts can find it.
+01m0005 02150 640714224571034440000000	ADRL:   D[MA] ROT[14.] ALU[D] DEST[AR MEMSTO] NORM $
+01m0005                               	                ;Perform function D on MA and store it
+01m0005                               	
+01m0005 02151 640723624571000440000000	        D[MA] DEST[MA CLR-MI-ERR] NORM $
+01m0005 02152 640700000171000440000000	        D[AR] DEST[Q] NORM $
+01m0005 02153 470040004735000443400000	        D[MEM] ALU[D#Q] COND[-OBUS=0] START-IN PUSHJ[ERR1X] C600 $
+01m0005                               	                ;Check the result of the examine against what was expected
+01m0005                               	                ;and if no error, prepare to check ECC
+01m0005 02154 030040030571036010020000	        D[IOD] MAPF[2] ROT[17] MASK[1] COND[-OBUS=0] PUSHJ[ERR1X] $
+01m0005                               	         ;JMP if ECC err
+01m0005 02155 640722624033000440000000	        D[MA] ALU[D+1] DEST[Q MA HI-ABS-MA] NORM $
+01m0005                               	                ;Advance to next location
+01m0005 02156 470140014537042010002150	        D[CONST NMEMS] ROT[17.] ALU[D-Q] COND[-OBUS=0] JUMP[ADRL] C600 $
+01m0005                               	                ;Check for XEND-of memory to be tested
+01m0005 02157 640743614571000030000000	        D[CONST 3] DEST[CLR-MI-ERR] LLOAD NORM $
+01m0005                               	                ;Set repeat count for this test and clear error we may
+01m0005                               	                ;have gotten from running off the XEND-of memory
+01m0005 02160 640722600615000440000000	A32:    ALU[0] DEST[MA HI-ABS-MA] NORM $
+01m0005                               	                ;Start again from the beginning of memory
+01m0005                               	                ;Also, fetch first word from memory
+01m0005 02161 640710024171034440000000	A31:    D[MA] ROT[14.] ALU[D] DEST[AR Q] NORM $
+01m0005                               	                ;Apply function D to MA and put it where we can
+01m0005                               	                ;test with it easier
+01m0005 02162 470040004735000443400000	        D[MEM] ALU[D#Q] COND[-OBUS=0] START-IN PUSHJ[ERR1] C600 $
+01m0005                               	                ;Check the result of the examine against what was expected
+01m0005                               	                ;and if no error, prepare to check ECC
+SLOE   Jan ***, 1859 00:00:03  file STRING:  --  of -- MEMT1
+
+01m0005 02163 030040030571036010020000	        D[IOD] MAPF[2] ROT[17] MASK[1] COND[-OBUS=0] PUSHJ[ERR1] $
+01m0005                               	         ;JMP if ECC err
+01m0005 02164 640722624033000440000000	        D[MA] ALU[D+1] DEST[Q MA HI-ABS-MA] NORM $
+01m0005                               	                ;Advance to next location and start the examine
+01m0005 02165 470140014477042010002161	        D[CONST NMEMS] ROT[17.] ALU[Q-D] COND[-OBUS=0] JUMP[A31] C600 $
+01m0005                               	                ;Check for the XEND-of memory.  Loop if not.
+01m0005 02166 640243600571000440002160	        LOOP[A32] DEST[CLR-MI-ERR] NORM $
+01m0005                               	                ;Repeat the examine phase N times.
+01m0005                               	                ;(No more MA 18 jumper!!!)
+01m0005 02167 000300000571000440000000	        POPJ $
+01m0005                               	ADRLX:
+01m0006                               	]       TEST[01m0006 02170 640050010571000430002172	D[MASK 43] DEST[AR] PUSHJ[. + 2] NORM $
+01m0006                               	                ;Setup thing to test with
+01m0006 02171 000140000571000440000000	        JUMP[LHOLX] $   ;Go to next test.
+01m0006       6	  TNUM = TNUM + 1  ;Increment test seq. no.
+01m0006 02172 000041014571000063000000	        D[CONST TNUM] DEST[4] DEST-A-MEM PUSHJ[LDLTS1] $
+01m0006                               	          ;Put it where error typeouts can find it.
+01m0006 02173 640722600615000440000000	        ALU[0] DEST[MA HI-ABS-MA] NORM $
+01m0006                               	                ;Start at memory address 0
+01m0006 02174 640714200571002440000000	LHOL:   D[AR] ROT[1] DEST[AR MEMSTO] NORM $
+01m0006                               	                ;Rotate test value and store new value in memory
+01m0006                               	
+01m0006 02175 640723624571000440000000	        D[MA] DEST[MA CLR-MI-ERR] NORM $
+01m0006 02176 640700000171000440000000	        D[AR] DEST[Q] NORM $
+01m0006 02177 470040004735000443400000	        D[MEM] ALU[D#Q] COND[-OBUS=0] START-IN PUSHJ[ERR1X] C600 $
+01m0006                               	                ;Check the result of the examine against what was expected
+01m0006                               	                ;and if no error, prepare to check ECC
+01m0006 02200 030040030571036010020000	        D[IOD] MAPF[2] ROT[17] MASK[1] COND[-OBUS=0] PUSHJ[ERR1X] $
+01m0006                               	         ;JMP if ECC err
+01m0006 02201 640722624033000440000000	        D[MA] ALU[D+1] DEST[Q MA HI-ABS-MA] NORM $
+01m0006                               	                ;Advance to next location
+01m0006 02202 470140014537042010002174	        D[CONST NMEMS] ROT[17.] ALU[D-Q] COND[-OBUS=0] JUMP[LHOL] C600 $
+01m0006                               	                ;Check for XEND-of memory to be tested
+01m0006 02203 640743614571000030000000	        D[CONST 3] DEST[CLR-MI-ERR] LLOAD NORM $
+01m0006                               	                ;Set repeat count for this test and clear error we may
+01m0006                               	                ;have gotten from running off the XEND-of memory
+01m0006 02204 640710010571000430000000	T32:    D[MASK 43] DEST[AR] NORM $
+01m0006                               	                ;Setup same thing to test against
+01m0006 02205 640722600615000440000000	        ALU[0] DEST[MA HI-ABS-MA] NORM $
+01m0006                               	                ;Start again from the beginning of memory
+01m0006                               	                ;Also, fetch first word from memory
+01m0006 02206 640710000171002440000000	T31:    D[AR] ROT[1] DEST[AR Q] NORM $
+01m0006                               	                ;Rotate test value by one and put it where we can
+01m0006                               	                ;test with it easier
+01m0006 02207 470040004735000443400000	        D[MEM] ALU[D#Q] COND[-OBUS=0] START-IN PUSHJ[ERR1] C600 $
+01m0006                               	                ;Check the result of the examine against what was expected
+01m0006                               	                ;and if no error, prepare to check ECC
+01m0006 02210 030040030571036010020000	        D[IOD] MAPF[2] ROT[17] MASK[1] COND[-OBUS=0] PUSHJ[ERR1] $
+01m0006                               	         ;JMP if ECC err
+01m0006 02211 640722624033000440000000	        D[MA] ALU[D+1] DEST[Q MA HI-ABS-MA] NORM $
+01m0006                               	                ;Advance to next location and start the examine
+01m0006 02212 470140014537042010002206	        D[CONST NMEMS] ROT[17.] ALU[D-Q] COND[-OBUS=0] JUMP[T31] C600 $
+01m0006                               	                ;Check for the XEND-of memory.  Loop if not.
+01m0006 02213 640243600571000440002204	        LOOP[T32] DEST[CLR-MI-ERR] NORM $
+01m0006                               	                ;Repeat the examine phase N times.
+01m0006                               	                ;(No more MA 18 jumper!!!)
+SLOE   Jan ***, 1859 00:00:03  file STRING:  --  of -- MEMT1
+
+01m0006 02214 000300000571000440000000	        POPJ $
+01m0006                               	LHOLX:
+01m0007                               	]       TEST[01m0007 02215 640050010571000010002217	D[MASK 1] DEST[AR] PUSHJ[. + 2] NORM $
+01m0007                               	                ;Setup thing to test with
+01m0007 02216 000140000571000440000000	        JUMP[LBITX] $   ;Go to next test.
+01m0007       7	  TNUM = TNUM + 1  ;Increment test seq. no.
+01m0007 02217 000041014571000073000000	        D[CONST TNUM] DEST[4] DEST-A-MEM PUSHJ[LDLTS1] $
+01m0007                               	          ;Put it where error typeouts can find it.
+01m0007 02220 640722600615000440000000	        ALU[0] DEST[MA HI-ABS-MA] NORM $
+01m0007                               	                ;Start at memory address 0
+01m0007 02221 640714200571002440000000	LBIT:   D[AR] ROT[1] DEST[AR MEMSTO] NORM $
+01m0007                               	                ;Rotate test value and store new value in memory
+01m0007                               	
+01m0007 02222 640723624571000440000000	        D[MA] DEST[MA CLR-MI-ERR] NORM $
+01m0007 02223 640700000171000440000000	        D[AR] DEST[Q] NORM $
+01m0007 02224 470040004735000443400000	        D[MEM] ALU[D#Q] COND[-OBUS=0] START-IN PUSHJ[ERR1X] C600 $
+01m0007                               	                ;Check the result of the examine against what was expected
+01m0007                               	                ;and if no error, prepare to check ECC
+01m0007 02225 030040030571036010020000	        D[IOD] MAPF[2] ROT[17] MASK[1] COND[-OBUS=0] PUSHJ[ERR1X] $
+01m0007                               	         ;JMP if ECC err
+01m0007 02226 640722624033000440000000	        D[MA] ALU[D+1] DEST[Q MA HI-ABS-MA] NORM $
+01m0007                               	                ;Advance to next location
+01m0007 02227 470140014537042010002221	        D[CONST NMEMS] ROT[17.] ALU[D-Q] COND[-OBUS=0] JUMP[LBIT] C600 $
+01m0007                               	                ;Check for XEND-of memory to be tested
+01m0007 02230 640743614571000030000000	        D[CONST 3] DEST[CLR-MI-ERR] LLOAD NORM $
+01m0007                               	                ;Set repeat count for this test and clear error we may
+01m0007                               	                ;have gotten from running off the XEND-of memory
+01m0007 02231 640710010571000010000000	T42:    D[MASK 1] DEST[AR] NORM $
+01m0007                               	                ;Setup same thing to test against
+01m0007 02232 640722600615000440000000	        ALU[0] DEST[MA HI-ABS-MA] NORM $
+01m0007                               	                ;Start again from the beginning of memory
+01m0007                               	                ;Also, fetch first word from memory
+01m0007 02233 640710000171002440000000	T41:    D[AR] ROT[1] DEST[AR Q] NORM $
+01m0007                               	                ;Rotate test value by one and put it where we can
+01m0007                               	                ;test with it easier
+01m0007 02234 470040004735000443400000	        D[MEM] ALU[D#Q] COND[-OBUS=0] START-IN PUSHJ[ERR1] C600 $
+01m0007                               	                ;Check the result of the examine against what was expected
+01m0007                               	                ;and if no error, prepare to check ECC
+01m0007 02235 030040030571036010020000	        D[IOD] MAPF[2] ROT[17] MASK[1] COND[-OBUS=0] PUSHJ[ERR1] $
+01m0007                               	         ;JMP if ECC err
+01m0007 02236 640722624033000440000000	        D[MA] ALU[D+1] DEST[Q MA HI-ABS-MA] NORM $
+01m0007                               	                ;Advance to next location and start the examine
+01m0007 02237 470140014537042010002233	        D[CONST NMEMS] ROT[17.] ALU[D-Q] COND[-OBUS=0] JUMP[T41] C600 $
+01m0007                               	                ;Check for the XEND-of memory.  Loop if not.
+01m0007 02240 640243600571000440002231	        LOOP[T42] DEST[CLR-MI-ERR] NORM $
+01m0007                               	                ;Repeat the examine phase N times.
+01m0007                               	                ;(No more MA 18 jumper!!!)
+01m0007 02241 000300000571000440000000	        POPJ $
+01m0007                               	LBITX:
+01m0008                               	]       TEST[01m0008 02242 640050010571000220002244	D[MASK 22] DEST[AR] PUSHJ[. + 2] NORM $
+01m0008                               	                ;Setup thing to test with
+01m0008 02243 000140000571000440000000	        JUMP[HWDX] $    ;Go to next test.
+01m0008       10	  TNUM = TNUM + 1  ;Increment test seq. no.
+01m0008 02244 000041014571000103000000	        D[CONST TNUM] DEST[4] DEST-A-MEM PUSHJ[LDLTS1] $
+01m0008                               	          ;Put it where error typeouts can find it.
+SLOE   Jan ***, 1859 00:00:03  file STRING:  --  of -- MEMT1
+
+01m0008 02245 640722600615000440000000	        ALU[0] DEST[MA HI-ABS-MA] NORM $
+01m0008                               	                ;Start at memory address 0
+01m0008 02246 640714200571002440000000	HWD:    D[AR] ROT[1] DEST[AR MEMSTO] NORM $
+01m0008                               	                ;Rotate test value and store new value in memory
+01m0008                               	
+01m0008 02247 640723624571000440000000	        D[MA] DEST[MA CLR-MI-ERR] NORM $
+01m0008 02250 640700000171000440000000	        D[AR] DEST[Q] NORM $
+01m0008 02251 470040004735000443400000	        D[MEM] ALU[D#Q] COND[-OBUS=0] START-IN PUSHJ[ERR1X] C600 $
+01m0008                               	                ;Check the result of the examine against what was expected
+01m0008                               	                ;and if no error, prepare to check ECC
+01m0008 02252 030040030571036010020000	        D[IOD] MAPF[2] ROT[17] MASK[1] COND[-OBUS=0] PUSHJ[ERR1X] $
+01m0008                               	         ;JMP if ECC err
+01m0008 02253 640722624033000440000000	        D[MA] ALU[D+1] DEST[Q MA HI-ABS-MA] NORM $
+01m0008                               	                ;Advance to next location
+01m0008 02254 470140014537042010002246	        D[CONST NMEMS] ROT[17.] ALU[D-Q] COND[-OBUS=0] JUMP[HWD] C600 $
+01m0008                               	                ;Check for XEND-of memory to be tested
+01m0008 02255 640743614571000030000000	        D[CONST 3] DEST[CLR-MI-ERR] LLOAD NORM $
+01m0008                               	                ;Set repeat count for this test and clear error we may
+01m0008                               	                ;have gotten from running off the XEND-of memory
+01m0008 02256 640710010571000220000000	T52:    D[MASK 22] DEST[AR] NORM $
+01m0008                               	                ;Setup same thing to test against
+01m0008 02257 640722600615000440000000	        ALU[0] DEST[MA HI-ABS-MA] NORM $
+01m0008                               	                ;Start again from the beginning of memory
+01m0008                               	                ;Also, fetch first word from memory
+01m0008 02260 640710000171002440000000	T51:    D[AR] ROT[1] DEST[AR Q] NORM $
+01m0008                               	                ;Rotate test value by one and put it where we can
+01m0008                               	                ;test with it easier
+01m0008 02261 470040004735000443400000	        D[MEM] ALU[D#Q] COND[-OBUS=0] START-IN PUSHJ[ERR1] C600 $
+01m0008                               	                ;Check the result of the examine against what was expected
+01m0008                               	                ;and if no error, prepare to check ECC
+01m0008 02262 030040030571036010020000	        D[IOD] MAPF[2] ROT[17] MASK[1] COND[-OBUS=0] PUSHJ[ERR1] $
+01m0008                               	         ;JMP if ECC err
+01m0008 02263 640722624033000440000000	        D[MA] ALU[D+1] DEST[Q MA HI-ABS-MA] NORM $
+01m0008                               	                ;Advance to next location and start the examine
+01m0008 02264 470140014537042010002260	        D[CONST NMEMS] ROT[17.] ALU[D-Q] COND[-OBUS=0] JUMP[T51] C600 $
+01m0008                               	                ;Check for the XEND-of memory.  Loop if not.
+01m0008 02265 640243600571000440002256	        LOOP[T52] DEST[CLR-MI-ERR] NORM $
+01m0008                               	                ;Repeat the examine phase N times.
+01m0008                               	                ;(No more MA 18 jumper!!!)
+01m0008 02266 000300000571000440000000	        POPJ $
+01m0008                               	HWDX:
+01m0009                               	]       TEST[01m0009 02267 640050010571000150002271	D[MASK 15] DEST[AR] PUSHJ[. + 2] NORM $
+01m0009                               	                ;Setup thing to test with
+01m0009 02270 000140000571000440000000	        JUMP[T60X] $    ;Go to next test.
+01m0009       11	  TNUM = TNUM + 1  ;Increment test seq. no.
+01m0009 02271 000041014571000113000000	        D[CONST TNUM] DEST[4] DEST-A-MEM PUSHJ[LDLTS1] $
+01m0009                               	          ;Put it where error typeouts can find it.
+01m0009 02272 640722600615000440000000	        ALU[0] DEST[MA HI-ABS-MA] NORM $
+01m0009                               	                ;Start at memory address 0
+01m0009 02273 640714200571002440000000	T60:    D[AR] ROT[1] DEST[AR MEMSTO] NORM $
+01m0009                               	                ;Rotate test value and store new value in memory
+01m0009                               	
+01m0009 02274 640723624571000440000000	        D[MA] DEST[MA CLR-MI-ERR] NORM $
+01m0009 02275 640700000171000440000000	        D[AR] DEST[Q] NORM $
+01m0009 02276 470040004735000443400000	        D[MEM] ALU[D#Q] COND[-OBUS=0] START-IN PUSHJ[ERR1X] C600 $
+01m0009                               	                ;Check the result of the examine against what was expected
+SLOE   Jan ***, 1859 00:00:03  file STRING:  --  of -- MEMT1
+
+01m0009                               	                ;and if no error, prepare to check ECC
+01m0009 02277 030040030571036010020000	        D[IOD] MAPF[2] ROT[17] MASK[1] COND[-OBUS=0] PUSHJ[ERR1X] $
+01m0009                               	         ;JMP if ECC err
+01m0009 02300 640722624033000440000000	        D[MA] ALU[D+1] DEST[Q MA HI-ABS-MA] NORM $
+01m0009                               	                ;Advance to next location
+01m0009 02301 470140014537042010002273	        D[CONST NMEMS] ROT[17.] ALU[D-Q] COND[-OBUS=0] JUMP[T60] C600 $
+01m0009                               	                ;Check for XEND-of memory to be tested
+01m0009 02302 640743614571000030000000	        D[CONST 3] DEST[CLR-MI-ERR] LLOAD NORM $
+01m0009                               	                ;Set repeat count for this test and clear error we may
+01m0009                               	                ;have gotten from running off the XEND-of memory
+01m0009 02303 640710010571000150000000	T62:    D[MASK 15] DEST[AR] NORM $
+01m0009                               	                ;Setup same thing to test against
+01m0009 02304 640722600615000440000000	        ALU[0] DEST[MA HI-ABS-MA] NORM $
+01m0009                               	                ;Start again from the beginning of memory
+01m0009                               	                ;Also, fetch first word from memory
+01m0009 02305 640710000171002440000000	T61:    D[AR] ROT[1] DEST[AR Q] NORM $
+01m0009                               	                ;Rotate test value by one and put it where we can
+01m0009                               	                ;test with it easier
+01m0009 02306 470040004735000443400000	        D[MEM] ALU[D#Q] COND[-OBUS=0] START-IN PUSHJ[ERR1] C600 $
+01m0009                               	                ;Check the result of the examine against what was expected
+01m0009                               	                ;and if no error, prepare to check ECC
+01m0009 02307 030040030571036010020000	        D[IOD] MAPF[2] ROT[17] MASK[1] COND[-OBUS=0] PUSHJ[ERR1] $
+01m0009                               	         ;JMP if ECC err
+01m0009 02310 640722624033000440000000	        D[MA] ALU[D+1] DEST[Q MA HI-ABS-MA] NORM $
+01m0009                               	                ;Advance to next location and start the examine
+01m0009 02311 470140014537042010002305	        D[CONST NMEMS] ROT[17.] ALU[D-Q] COND[-OBUS=0] JUMP[T61] C600 $
+01m0009                               	                ;Check for the XEND-of memory.  Loop if not.
+01m0009 02312 640243600571000440002303	        LOOP[T62] DEST[CLR-MI-ERR] NORM $
+01m0009                               	                ;Repeat the examine phase N times.
+01m0009                               	                ;(No more MA 18 jumper!!!)
+01m0009 02313 000300000571000440000000	        POPJ $
+01m0009                               	T60X:
+01m0010                               	]       TESTC[01m0010 02314 640050010571000000002316	D[MASK 0] DEST[AR] PUSHJ[. + 2] NORM $
+01m0010 02315 000140000571000440000000	        JUMP[C11X] $    ;Go to next test.
+01m0010       12	  TNUM = TNUM + 1  ;Increment test seq. no.
+01m0010 02316 000041014571000123000000	        D[CONST TNUM] DEST[4] DEST-A-MEM PUSHJ[LDLTS1] $
+01m0010                               	          ;Put it where error typeouts can find it.
+01m0010 02317 640722600615000440000000	        ALU[0] DEST[MA HI-ABS-MA] NORM $
+01m0010 02320 640704200571000440000000	C11:    D[AR] DEST[MEMSTO] NORM $
+01m0010                               	
+01m0010 02321 640723624571000440000000	        D[MA] DEST[MA CLR-MI-ERR] NORM $
+01m0010 02322 640700000171000440000000	        D[AR] DEST[Q] NORM $
+01m0010 02323 470040004735000443400000	        D[MEM] ALU[D#Q] COND[-OBUS=0] START-IN PUSHJ[ERR1X] C600 $
+01m0010                               	                ;Check the result of the examine against what was expected
+01m0010                               	                ;and if no error, prepare to check ECC
+01m0010 02324 030040030571036010020000	        D[IOD] MAPF[2] ROT[17] MASK[1] COND[-OBUS=0] PUSHJ[ERR1X] $
+01m0010                               	         ;JMP if ECC err
+01m0010 02325 640722624033000440000000	        D[MA] ALU[D+1] DEST[Q MA HI-ABS-MA] NORM $
+01m0010 02326 470140014537042010002320	        D[CONST NMEMS] ROT[17.] ALU[D-Q] COND[-OBUS=0] JUMP[C11] C600 $
+01m0010 02327 640743614571000100000000	        D[CONST 10] DEST[CLR-MI-ERR] LLOAD NORM $
+01m0010 02330 640710010571000000000000	        D[MASK 0] DEST[AR] NORM $
+01m0010 02331 640722600615000440000000	C13:    ALU[0] DEST[MA HI-ABS-MA] NORM $
+01m0010 02332 640700000171000440000000	C12:    D[AR] DEST[Q] NORM $
+01m0010 02333 470040004735000443400000	        D[MEM] ALU[D#Q] COND[-OBUS=0] START-IN PUSHJ[ERR1] C600 $
+01m0010 02334 030040030571036010020000	        D[IOD] MAPF[2] ROT[17] MASK[1] COND[-OBUS=0] PUSHJ[ERR1] $
+01m0010                               	         ;JMP if ECC err
+SLOE   Jan ***, 1859 00:00:03  file STRING:  --  of -- MEMT1
+
+01m0010 02335 640704200771000440000000	        D[AR] ALU[NOTD] DEST[MEMSTO] NORM $
+01m0010 02336 640722624033000440000000	        D[MA] ALU[D+1] DEST[Q MA HI-ABS-MA] NORM $
+01m0010 02337 470140014537042010002332	        D[CONST NMEMS] ROT[17.] ALU[D-Q] COND[-OBUS=0] JUMP[C12] C600 $
+01m0010 02340 640710000771000440000000	        D[AR] ALU[NOTD] DEST[AR] NORM $
+01m0010 02341 640243600571000440002331	        LOOP[C13] DEST[CLR-MI-ERR] NORM $
+01m0010 02342 000300000571000440000000	        POPJ $
+01m0010                               	C11X:
+01m0011                               	]       TESTC[01m0011 02343 640050010571000220002345	D[MASK 22] DEST[AR] PUSHJ[. + 2] NORM $
+01m0011 02344 000140000571000440000000	        JUMP[C21X] $    ;Go to next test.
+01m0011       13	  TNUM = TNUM + 1  ;Increment test seq. no.
+01m0011 02345 000041014571000133000000	        D[CONST TNUM] DEST[4] DEST-A-MEM PUSHJ[LDLTS1] $
+01m0011                               	          ;Put it where error typeouts can find it.
+01m0011 02346 640722600615000440000000	        ALU[0] DEST[MA HI-ABS-MA] NORM $
+01m0011 02347 640704200571000440000000	C21:    D[AR] DEST[MEMSTO] NORM $
+01m0011                               	
+01m0011 02350 640723624571000440000000	        D[MA] DEST[MA CLR-MI-ERR] NORM $
+01m0011 02351 640700000171000440000000	        D[AR] DEST[Q] NORM $
+01m0011 02352 470040004735000443400000	        D[MEM] ALU[D#Q] COND[-OBUS=0] START-IN PUSHJ[ERR1X] C600 $
+01m0011                               	                ;Check the result of the examine against what was expected
+01m0011                               	                ;and if no error, prepare to check ECC
+01m0011 02353 030040030571036010020000	        D[IOD] MAPF[2] ROT[17] MASK[1] COND[-OBUS=0] PUSHJ[ERR1X] $
+01m0011                               	         ;JMP if ECC err
+01m0011 02354 640722624033000440000000	        D[MA] ALU[D+1] DEST[Q MA HI-ABS-MA] NORM $
+01m0011 02355 470140014537042010002347	        D[CONST NMEMS] ROT[17.] ALU[D-Q] COND[-OBUS=0] JUMP[C21] C600 $
+01m0011 02356 640743614571000030000000	        D[CONST 3] DEST[CLR-MI-ERR] LLOAD NORM $
+01m0011 02357 640710010571000220000000	        D[MASK 22] DEST[AR] NORM $
+01m0011 02360 640722600615000440000000	C23:    ALU[0] DEST[MA HI-ABS-MA] NORM $
+01m0011 02361 640700000171000440000000	C22:    D[AR] DEST[Q] NORM $
+01m0011 02362 470040004735000443400000	        D[MEM] ALU[D#Q] COND[-OBUS=0] START-IN PUSHJ[ERR1] C600 $
+01m0011 02363 030040030571036010020000	        D[IOD] MAPF[2] ROT[17] MASK[1] COND[-OBUS=0] PUSHJ[ERR1] $
+01m0011                               	         ;JMP if ECC err
+01m0011 02364 640704200771000440000000	        D[AR] ALU[NOTD] DEST[MEMSTO] NORM $
+01m0011 02365 640722624033000440000000	        D[MA] ALU[D+1] DEST[Q MA HI-ABS-MA] NORM $
+01m0011 02366 470140014537042010002361	        D[CONST NMEMS] ROT[17.] ALU[D-Q] COND[-OBUS=0] JUMP[C22] C600 $
+01m0011 02367 640710000771000440000000	        D[AR] ALU[NOTD] DEST[AR] NORM $
+01m0011 02370 640243600571000440002360	        LOOP[C23] DEST[CLR-MI-ERR] NORM $
+01m0011 02371 000300000571000440000000	        POPJ $
+01m0011                               	C21X:
+01m0012 02372 640040014171000070000000	]       D[CONST 7] DEST[Q] PUSHJ[TYP] NORM $
+01m0012                               	                ;Bells (and whistles???) at XEND of pass
+01m0012                               	        TYPLET[01m0012 02373 640040014171000200000000	D[CONST 20] DEST[Q] PUSHJ[LTYP] NORM ]$ ;"P"
+01m0012 02374 640140000571000440002024	        JUMP[STRTLP] NORM $
+01m0012                               	
+01m0012                               	 .DEFINE GET1 01m0012                               	
+01m0012 02375 000040100571000440000000	ERR1X:  CURRENTLY-UNUSED[1] PUSHJ[TTEST] $
+01m0012                               	        TYPLET[01m0012 02376 640040014171000220000000	D[CONST 22] DEST[Q] PUSHJ[LTYP] NORM ]$ ;"R"
+01m0012 02377 000140000571000440000000	        JUMP[ERR1X1] $
+01m0012                               	
+01m0012 02400 000040100571000440000000	ERR1:   CURRENTLY-UNUSED[1] PUSHJ[TTEST] $
+01m0012 02401 000040000571000440000000	ERR1X1: PUSHJ[ERR2] $
+01m0012                               	
+01m0012                               	 .REPEAT 2 [ 01m0012                               	;Now read the same location 2 more times, checking for errors.
+SLOE   Jan ***, 1859 00:00:03  file STRING:  --  of -- MEMT1
+
+01m0012                               	        TYPLET[01m0012 02402 640040014171000030000000	D[CONST 03] DEST[Q] PUSHJ[LTYP] NORM ]$ ;"C"
+01m0012                               	        TYPSPC ;Type a <SPACE>
+01m0012 02403 640040014171000400000000	        D[CONST 40] DEST[Q] PUSHJ[TYP] NORM ]$  ;<SPACE>
+01m0012 02404 640720024571000440000000	        D[MA] DEST[MA] NORM $
+01m0012 02405 640700000171000440000000	        D[AR] DEST[Q] NORM $
+01m0012 02406 470040004735000440000000	        D[MEM] ALU[D#Q] COND[-OBUS=0] PUSHJ[ERR2] C600 $
+01m0012                               	         ;Type out data errors.
+01m0012                               	        GET1
+01m0013 02407 640701614571000013400000	[CONST 1] DEST[DEV-ADR] START-IN NORM $]        D[IOD] MAPF[2] ROT[17] MASK[1]
+01m0013 02410 030040030571036010020000	 COND[-OBUS=0] PUSHJ[ERR2] $
+01m0013                               	         ;JMP if ECC err
+01m0012                               	      ];Now read the same location 2 more times, checking for errors.
+01m0012                               	        TYPLET[01m0012 02411 640040014171000030000000	D[CONST 03] DEST[Q] PUSHJ[LTYP] NORM ]$ ;"C"
+01m0012                               	        TYPSPC ;Type a <SPACE>
+01m0012 02412 640040014171000400000000	        D[CONST 40] DEST[Q] PUSHJ[TYP] NORM ]$  ;<SPACE>
+01m0012 02413 640720024571000440000000	        D[MA] DEST[MA] NORM $
+01m0012 02414 640700000171000440000000	        D[AR] DEST[Q] NORM $
+01m0012 02415 470040004735000440000000	        D[MEM] ALU[D#Q] COND[-OBUS=0] PUSHJ[ERR2] C600 $
+01m0012                               	         ;Type out data errors.
+01m0012                               	        GET1
+01m0013 02416 640701614571000013400000	[CONST 1] DEST[DEV-ADR] START-IN NORM $]        D[IOD] MAPF[2] ROT[17] MASK[1]
+01m0013 02417 030040030571036010020000	 COND[-OBUS=0] PUSHJ[ERR2] $
+01m0013                               	         ;JMP if ECC err
+01m0012 02420 000040000571000440000000	      ] PUSHJ[TCR] $  ;Type CRLF
+01m0012 02421 000040000571000440000000	        PUSHJ[LDLTS] $ ; Display bad data in lites.
+01m0012 02422 000140000571000440000000	        JUMP[SWLOOP] $
+01m0012                               	                ;Call SWLOOP to test switches for what to do next.
+01m0012 02423 000301614571000013400000	SWCONT: START-IN D[CONST 1] DEST[DEV-ADR] POPJ $
+01m0012                               	          ;Go back to test if we return from SWLOOP.
+01m0012                               	                ;START-IN may be needed by test we are returning to.
+01m0012                               	
+01m0012                               	ERRSW:  TYPLET[01m0012 02424 640040014171000230000000	D[CONST 23] DEST[Q] PUSHJ[LTYP] NORM ]$ ;"S"
+01m0012                               	        TYPLET[01m0012 02425 640040014171000270000000	D[CONST 27] DEST[Q] PUSHJ[LTYP] NORM ]$ ;"W"
+01m0012                               	        TYPSPC ;Type a <SPACE>
+01m0012 02426 640040014171000400000000	        D[CONST 40] DEST[Q] PUSHJ[TYP] NORM ]$
+01m0012                               	
+01m0012                               	ERR2:     ; TYPE MA & AR
+01m0012 02427 640040024171000440000000	        D[MA] DEST[Q] PUSHJ[NTYP] NORM $
+01m0012 02430 640040000171000440000000	        D[AR] DEST[Q] PUSHJ[NTYP] NORM $
+01m0012                               	        GET1
+01m0013 02431 640701614571000013400000	[CONST 1] DEST[DEV-ADR] START-IN NORM $]        D[IOD] MAPF[2] ROT[17] MASK[1]
+01m0013 02432 030140030571036010020000	 COND[-OBUS=0] JUMP[ERR3] $
+01m0013                               	         ;j if ECC ERR
+01m0013 02433 640040014171002470000000	        D[CONST 47] ROT[1] DEST[Q] PUSHJ[TYP] NORM $
+01m0013                               	         ; prnt N
+01m0013 02434 640040014033002420000000	        D[CONST 42] ROT[1] ALU[D+1] DEST[Q] PUSHJ[TYP] NORM $
+01m0013                               	         ; prnt E
+01m0013                               	        TYPSPC ;Type a <SPACE>
+01m0013 02435 640040014171000400000000	        D[CONST 40] DEST[Q] PUSHJ[TYP] NORM ]$
+01m0013 02436 640140000571000440000000	        JUMP[NERR1] NORM $
+01m0013                               	ERR3:    ; Type ECC stuff
+01m0013 02437 640040014033002420000000	        D[CONST 42] ROT[1] ALU[D+1] DEST[Q] PUSHJ[TYP] NORM $; PRINT E
+01m0013 02440 640700014171000400000000	        D[CONST 40] DEST[Q] NORM $
+SLOE   Jan ***, 1859 00:00:03  file STRING:  --  of -- MEMT1
+
+01m0013                               	        GET1
+01m0014 02441 640701614571000013400000	[CONST 1] DEST[DEV-ADR] START-IN NORM $]        D[IOD] MAPF[4] ROT[40] MASK[1]
+01m0014 02442 010140030571100010042444	 COND[OBUS=0] JUMP[. + 2] $; HARD ERR?
+01m0014 02443 640700014035000500000000	        D[CONST 50] ALU[D+Q] DEST[Q] NORM $
+01m0014 02444 640040000571000440000000	        PUSHJ[TYP] NORM $
+01m0014                               	        GET1
+01m0015 02445 640701614571000013400000	[CONST 1] DEST[DEV-ADR] START-IN NORM $]        MAPF[2] D[IOD] ROT[16] MASK[6] DEST[Q]
+01m0015 02446 240040030171034060020000	 PUSHJ[NTYP] C800 $
+01m0015                               	        GET1
+01m0016 02447 640701614571000013400000	[CONST 1] DEST[DEV-ADR] START-IN NORM $]        MAPF[2] D[IOD] MASK[20.] DEST[Q] C800 $
+01m0016 02450 240700030171000240020000	
+01m0016 02451 450300024735000440000000	        D[MA] ALU[D#Q] COND[OBUS=0] POPJ C600 $
+01m0016 02452 640040014033002460000000	        D[CONST 46] ROT[1] ALU[D+1] DEST[Q] PUSHJ[TYP] NORM $
+01m0016                               	        GET1
+01m0017 02453 640701614571000013400000	[CONST 1] DEST[DEV-ADR] START-IN NORM $]        MAPF[2] D[IOD] MASK[20.] DEST[Q]
+01m0017 02454 240040030171000240020000	 PUSHJ[NTYP] C800 $
+01m0017 02455 640703604171000440000000	NERR1:  D[MEM] DEST[Q CLR-MI-ERR] SHORT $
+01m0017 02456 640701614571000010000000	        D[CONST 1] DEST[DEV-ADR] NORM $
+01m0017 02457 510300000735000443400000	        START-IN D[AR] ALU[D#Q] C550  OBUS=0 POPJ $
+01m0017                               	         ;Don't type data from memory unless it is in error.
+01m0017 02460 640040004171000440000000	        D[MEM] DEST[Q] PUSHJ[NTYP] NORM $
+01m0017                               	         ; Type erroneous data.
+01m0017 02461 640301614571000013400000	        START-IN D[CONST 1] DEST[DEV-ADR] NORM POPJ $
+01m0017                               	         ;Start reading ECC bits for routine we may be returning to.
+01m0017                               	
+01m0017 02462 640704460571000440000000	LDLTS1: D[14] DEST[HOLD] NORM $
+01m0017                               	
+01m0017 02463 640701600615000440000000	LDLTS:  ALU[0] DEST[DEV-ADR] NORM $     ;Prepare to set lights
+01m0017 02464 640702204571000443600000	        D[MEM] DEST[IOD] SPEC[IOB-OUT] NORM $   ;Display what we read
+01m0017 02465 000700004571000440000000	        D[MEM] $ ;At least some machines use OBUS for this.
+01m0017 02466 640301614571000010000000	        D[CONST 1] DEST[DEV-ADR] NORM POPJ $
+01m0017                               	
+01m0017                               	SWLOOP:  ;Examine the CONSOLE SWITCHES to determine next action.
+01m0017                               	         ;Current (1/18/81) options:
+01m0017                               	        ;EXAMINE, DEPOSIT -- work as in regular microcode.
+01m0017                               	        ;CONT -- proceed with current test
+01m0017                               	        ;RESET -- jump to next test
+01m0017                               	        ;START -- re-start MEMTST
+01m0017                               	
+01m0017 02467 640701600615000440000000	        ALU[0] DEST[DEV-ADR] NORM $
+01m0017                               	         ;First we save the AR.
+01m0017 02470 640701200571000443000000	        D[AR] DEST[5] DEST-A-MEM NORM $
+01m0017 02471 640701400571000443000000	        D[AR] DEST[6] DEST-A-MEM NORM $
+01m0017                               	         ;Init the Switch Compare Data to the current test data.
+01m0017 02472 640700000571000443600000	        START-OUT NORM $
+01m0017 02473 440700000571000440040000	        MAPF[4] CYLEN[IOB-OUT] $        ;CLR SW FF'S
+01m0017 02474 640700000571000443400000	        START-IN NORM $
+01m0017 02475 240710030571000440040000	STPLP1: D[IOD] DEST[AR] MAPF[4] C800 $  ;GET SW BITS
+01m0017 02476 530140000571020010000000	        D[AR] ROT[10] MASK[1] COND[-OBUS=0] JUMP[RESW2] C550 $  ;J IF RESET SW
+01m0017 02477 640700000171030110000000	        D[AR] ROT[14] MASK[11] DEST[Q] NORM $
+01m0017 02500 450140014675010073402475	        D[CONST 7] ROT[4] ALU[-D&Q] COND[OBUS=0] START-IN JUMP[STPLP1] C600 $
+01m0017                               	                ; LOOP IF NO SW
+01m0017 02501 640700000571000443600000	        SPEC[IOB-OUT] NORM $
+01m0017 02502 440700000571000440040000	        MAPF[4] CYLEN[IOB-OUT] $        
+01m0017                               	                ;CLR SW FF'S
+01m0017                               	  .DEFINE SWTEST 01m0017                               	NORSW2: SWTEST[SLOE   Jan ***, 1859 00:00:03  file STRING:  --  of -- MEMT1
+
+01m0017 02503 530140000571010010000000	D[AR] ROT[4] MASK[1] COND[-OBUS=0] JUMP [ CONSW ] C550 $
+01m0018                               	       ]        SWTEST[01m0018 02504 530140000571012010000000	D[AR] ROT[5] MASK[1] COND[-OBUS=0] JUMP [ STRTSW ] C550 $
+01m0019                               	       ]        SWTEST[01m0019 02505 530140000571022010000000	D[AR] ROT[11] MASK[1] COND[-OBUS=0] JUMP [ DEPTSW ] C550 $
+01m0020                               	       ]        SWTEST[01m0020 02506 530140000571024010000000	D[AR] ROT[12] MASK[1] COND[-OBUS=0] JUMP [ DEPNSW ] C550 $
+01m0021                               	       ]        SWTEST[01m0021 02507 530140000571026010000000	D[AR] ROT[13] MASK[1] COND[-OBUS=0] JUMP [ EXMTSW ] C550 $
+01m0022                               	       ]        SWTEST[01m0022 02510 530140000571030010000000	D[AR] ROT[14] MASK[1] COND[-OBUS=0] JUMP [ EXMNSW ] C550 $
+01m0023 02511 640141614571000003402475	       ]NORSWR: D[CONST 0] DEST[DEV-ADR] START-IN JUMP[STPLP1] NORM $   ;LOOP
+01m0023                               	
+01m0023 02512 640700000571000443400000	RESW2:  START-IN SHORT $
+01m0023 02513 240710030571000440000000	        D[IOD] DEST[AR]  C800 $ ;DOUBLE CHECK RESET SW
+01m0023 02514 250140000571020010002503	        D[AR] ROT[10] MASK[1] COND[OBUS=0] JUMP[NORSW2] C800 $
+01m0023 02515 000340000571000440002423	        JPOP[SWCONT] $ ;Return up-level to skip to next test.
+01m0023                               	
+01m0023 02516 000340000571000440002517	STRTSW: JPOP[. + 1] $
+01m0023                               	         ;Clear stack and restart
+01m0023 02517 000340000571000440002520	        JPOP[. + 1] $
+01m0023 02520 000340000571000440002521	        JPOP[. + 1] $
+01m0023 02521 000340000571000440002000	        JPOP[2000] $
+01m0023                               	
+01m0023 02522 000713664571000440000000	CONSW:  D[15] DEST[AR CLR-MI-ERR]  $
+01m0023 02523 000141614571000010002423	        D[CONST 1] DEST[DEV-ADR] JUMP[SWCONT] $
+01m0023                               	         ;Restore AR and DEV-ADR and continue.
+01m0023                               	
+01m0023 02524 640162600571000233400000	DEPTSW: D[AR] MASK[23] DEST[MA HI-ABS-MA] START-IN JUMP[DEPSW1] NORM $
+01m0023 02525 640720024433000443400000	DEPNSW: D[MA] ALU[D+1] DEST[MA] NORM START-IN $
+01m0023 02526 240714230571000440020000	DEPSW1: D[IOD] DEST[AR MEMSTO] MAPF[2] C800 $
+01m0023 02527 640701400571000443000000	        D[AR] DEST[6] DEST-A-MEM NORM $ 
+01m0023                               	          ;Update the Switch Compare Data.
+01m0023 02530 000143600571000440002511	        DEST[CLR-MI-ERR] JUMP[NORSWR] $
+01m0023                               	
+01m0023 02531 640162600571000230000000	EXMTSW: D[AR] MASK[23] DEST[MA HI-ABS-MA] JUMP[EXMSW1] NORM $
+01m0023 02532 640162624433000440000000	EXMNSW: D[MA] ALU[D+1] DEST[MA HI-ABS-MA] JUMP[EXMSW1] NORM $
+01m0023                               	
+01m0023 02533 640710064171000443600000	EXMSW1: SPEC[IOB-OUT] D[15] DEST[Q AR] NORM $
+01m0023 02534 000700004571000440020000	        D[MEM] MAPF[2] $
+01m0023                               	         ;Put mem data into data lites.
+01m0023 02535 000710070571000440000000	        D[16] DEST[AR] $
+01m0023                               	         ;Get Switch Compare Data for error routines.
+01m0023 02536 640701614571000013400000	        GET1 [CONST 1] DEST[DEV-ADR] START-IN NORM $]  ;Test for ECC error.
+01m0023 02537 030040030571036010022424	        D[IOD] MAPF[2] ROT[17] MASK[1] COND[-OBUS=0] PUSHJ[ERRSW] $
+01m0023                               	         ;JMP if ECC err
+01m0023 02540 640141600615000440002511	        ALU[0] DEST[DEV-ADR] NORM JUMP[NORSWR] $
+01m0023                               	
+01m0023 02541 640700000171000270000000	BRPNT:  D[AR] MASK[27] DEST[Q] NORM $
+01m0023 02542 470140020537000270002522	        D[PC] MASK[27] ALU[D-Q] COND[-OBUS=0] JUMP[CONSW] C600 $
+01m0023 02543 640140000571000443402475	        START-IN JUMP[STPLP1] NORM $
+01m0023                               	
+01m0023 02544 640040014171000150000000	TCR:    D[CONST 15] DEST[Q] PUSHJ[TYP] NORM $
+01m0023 02545 640703600571000440000000	        DEST[CLR-MI-ERR] NORM $
+01m0023 02546 640040014171000120000000	        D[CONST 12] DEST[Q] PUSHJ[TYP] NORM $
+01m0023 02547 640301614571000013400000	        D[CONST 1] DEST[DEV-ADR] START-IN POPJ NORM $
+01m0023                               	
+SLOE   Jan ***, 1859 00:00:03  file STRING:  --  of -- MEMT1
+
+01m0023                               	TTEST:  TYPLET[01m0023 02550 640040014171000240000000	D[CONST 24] DEST[Q] PUSHJ[LTYP] NORM ]$ ;"T"
+01m0023                               	        TYPLET[01m0023 02551 640040014171000050000000	D[CONST 05] DEST[Q] PUSHJ[LTYP] NORM ]$ ;"E"
+01m0023                               	        TYPLET[01m0023 02552 640040014171000230000000	D[CONST 23] DEST[Q] PUSHJ[LTYP] NORM ]$ ;"S"
+01m0023                               	        TYPLET[01m0023 02553 640040014171000240000000	D[CONST 24] DEST[Q] PUSHJ[LTYP] NORM ]$ ;"T"
+01m0023 02554 000701614571000010000000	        D[CONST 1] DEST[DEV-ADR] $
+01m0023                               	         ;Get number of current test, and type it out.
+01m0023 02555 000140060171000440000000	        D[14] DEST[Q] JUMP[NTYP] $
+01m0023                               	
+01m0023                               	
+01m0023                               	NTYP:    ;Type Q as an octal integer (leading-zero-suppressed) -- save AR
+01m0023                               	         ; Type a space after the number.
+01m0023 02556 640700001571400440000000	        ACSEL[AC+1] D[AR] DEST[AC] NORM $
+01m0023 02557 640700015571000140000000	        D[CONST 12.] DEST[AC] NORM $
+01m0023                               	         ;Max. no. of digits
+01m0023 02560 640710000555000440000000	        ALU[Q] DEST[AR] NORM $
+01m0023                               	NTL1:    ;Skip up to 11. leading 0's
+01m0023 02561 640710000571006440000000	        D[AR] ROT[3] DEST[AR] NORM $
+01m0023 02562 470140000171000030000000	        D[AR] MASK[3] DEST[Q] COND[-OBUS=0] JUMP[NTL2] C600 $
+01m0023 02563 470140001451000440002561	        ALU[AC-1] DEST[AC] COND[-OBUS=0] JUMP[NTL1] C600 $
+01m0023 02564 640040014171000600000000	        D[CONST 60] DEST[Q] PUSHJ[TYP] NORM $
+01m0023                               	         ;Type the 12th leading 0 and exit.
+01m0023 02565 640040014171000400000000	NTL3:   D[CONST 40] DEST[Q] PUSHJ[TYP] NORM $
+01m0023                               	         ;Type a space before exiting.
+01m0023 02566 640310000551400440000000	        ACSEL[AC+1] ALU[AC] DEST[AR] POPJ NORM $
+01m0023                               	NTL2:    ;Type the significant digits.
+01m0023 02567 640040014175000600000000	        D[CONST 60] ALU[DORQ] DEST[Q] PUSHJ[TYP] NORM $
+01m0023 02570 450140001451000440002565	        ALU[AC-1] DEST[AC] COND[OBUS=0] JUMP[NTL3] C600 $
+01m0023                               	         ;Exit if 12th digit has been typed.
+01m0023 02571 640710000571006440000000	        D[AR] ROT[3] DEST[AR] NORM $
+01m0023                               	         ;Get next digit.
+01m0023 02572 640140000171000030002567	        D[AR] MASK[3] DEST[Q] JUMP[NTL2] NORM $
+01m0023                               	
+01m0023                               	 ; TYPE OUT CHR IN Q -- saves AR, clobbers IR-ADR
+01m0023 02573 640701614571000040000000	TYP:    D[CONST 4] DEST[DEV-ADR] NORM $
+01m0023 02574 640700000571000443400000	        START-IN NORM $
+01m0023 02575 240704630571000440000000	        D[IOD] DEST[PC] C800 $
+01m0023 02576 410140020571052010002573	        D[PC] ROT[25] MASK[1] COND[OBUS=0] JUMP[TYP] CYLEN[C650] $
+01m0023                               	         ; wait for rdy
+01m0023 02577 640700214571014400000000	        D[CONST 40] ROT[6] DEST[IR-ADR] NORM $
+01m0023 02600 030140234531000220002600	        D[IR] MASK[22] ALU[D-1] DEST[IR-ADR] COND[-OBUS=0] JUMP[.] $
+01m0023                               	 .DEFINE TOUT 01m0023                               	        TOUT 01m0023 02601 640702214555000003600000	D[CONST 0] ALU[Q] DEST[IOD] SPEC[IOB-OUT] NORM $
+01m0023 02602 440700000571000440120000	        MAPF[TTY.WD] CYLEN[IOB-OUT] $
+01m0024                               	]       TOUT 01m0024 02603 640702214571000753600000	D[CONST 75] ALU[D] DEST[IOD] SPEC[IOB-OUT] NORM $
+01m0024 02604 440700000571000440140000	        MAPF[TTY.WC] CYLEN[IOB-OUT] $
+01m0025                               	]       TOUT 01m0025 02605 640702214571000743600000	D[CONST 74] ALU[D] DEST[IOD] SPEC[IOB-OUT] NORM $
+01m0025 02606 440700000571000440140000	        MAPF[TTY.WC] CYLEN[IOB-OUT] $
+01m0026 02607 640700214571014400000000	]       D[CONST 40] ROT[6] DEST[IR-ADR] NORM $
+01m0026 02610 030140234531000220002610	        D[IR] MASK[22] ALU[D-1] DEST[IR-ADR] COND[-OBUS=0] JUMP[.]  $
+01m0026 02611 640300000571000440000000	        POPJ NORM $
+SLOE   Jan ***, 1859 00:00:03  file DSK:MEMTST.SLO  --  of -- MEMT1
+
+01m0026                               	;Type a letter (add 100 and call TYP)
+01m0026 02612 000140014035014010002573	LTYP:   D[CONST 1] ROT[6] ALU[D+Q] DEST[Q] JUMP[TYP] $
+01m0026                               	
+01m0026                               	: 0
+01m0026                               	
+01m0026 00000 000140000571000440002000	        JUMP[2000]  $  ;Starting addres for bootstrapper
+01m0026                               	
+
+SLOE   Jan ***, 1859 00:00:03  file DSK:MEMT1.SLO  --  of -- MEMT1
+
+%Warn    no-@  is an undefined label 

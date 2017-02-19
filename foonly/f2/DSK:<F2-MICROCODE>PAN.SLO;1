@@ -1,0 +1,203 @@
+;----------------------------------------------------------------------;
+;								       ;
+;   PAN - Panofsky Interface for Systems Concept Digital Synthesizer   ;
+;								       ;
+;----------------------------------------------------------------------;
+PAN-UDEV	= 30	;uDevice address
+
+;MAPF fields
+PAN-STATUS	= 1	;Read status register
+;	Bit 0	-INT REQ 0
+;	Bit 1	-INT REQ 1
+;	Bit 2	MY PAR ERR
+;	Bit 3	HIS PAR ERR
+;	Bit 4	INT ENB 0
+;	Bit 5	INT ENB 1
+PAN-EN-IOB	= 2	;IOB->IOD
+PAN-IOB-RESET	= 0	;Start PAN Bus Reset
+PAN-CONTROL	= 1	;Set PAN device and control
+PAN-EN-IOB	= 2	;IOD->IOB (same nmemonic is other direction)
+PAN-INT-ENB	= 3	;Interrupt enable
+
+;Opcodes for CONTROL field
+PAN-CONTROL-ROT = 35. - 12.
+PAN-R/-W	= 40
+PAN-CON/-DAT	= 20
+PAN-MUNG	= 10	;This SHOULD be two.  SET-MUNG and CLEAR-MUNG
+PAN-CONI-OP	= PAN-MUNG + PAN-R/-W + PAN-CON/-DAT
+PAN-CONO-OP	= PAN-MUNG + PAN-CON/-DAT
+PAN-DATAI-OP	= PAN-MUNG + PAN-R/-W
+PAN-DATAO-OP	= PAN-MUNG + 0
+	;Use MUNGed (Pete's) format for now...  Need CONO to set change it
+	;and besides, there should be SET and CLEAR of MUNG
+
+;A-MEM usage
+;0 - PAN dispatches
+;4 - GRN dispatches
+;5 - GRN PI channel
+
+	.PAIR
+	D[PC] ROT[6 + 1] MASK[1] COND[OBUS=0] JUMP[MUUO] $
+		;Trap if User and not IOT-USER
+PANIOT:	D[CONST PAN-UDEV] DEST[DEV-ADR] NORM $
+		;Set common micro device address
+;;;	D[IR] ROT[11.] MASK[7] DEST[AR] NORM $
+;;;		;Get macro device address
+	d[ir] rot[9. + 1] alu[notd] dest[ar] norm $
+	d[ar] mask[7] dest[ar] norm $
+		;Special fudge for hardware bug.  Get device address
+	D[IR] ROT[12. + 1 + 1] MASK[4] DEST[Q] NORM $
+		;Extract IOT decode * 2.  Note we can do this because the
+		;machine has already done indexing/indirection and bits
+		;13:17 are guaranteed zero
+	D[10] ROT[18.] MASK[16.] ALU[D+Q] SDISP CYLEN[DISP] $
+		;Dispatch of type of IOT
+
+	;Normal IOT dispatch for PAN
+PAN-DISPATCH:
+;BLKI XXX, - Not implemented
+	JUMP[MUUO] $
+	NOP $
+;DATAI XXX,
+	D[CONST PAN-DATAI-OP] ROT[PAN-CONTROL-ROT] DEST[Q] PUSHJ[PAN-IOB-READ]
+			NORM $
+		;Use DATAx, In
+	MAPF[PAN-EN-IOB] CYLEN[LONG] D[IOD] ALU[NOTD] DEST[MEMSTO]
+			COND[-MA-AC] LBJUMP[MSMAIN] $
+		;Finish reading data from PAN bus.  Start store and let
+		;MSMAIN finish it.  (LONG is TVR being paranoid)
+;BLKO XXX, - Not implemented
+	JUMP[MUUO] $
+	NOP $
+;DATAO XXX,
+	FIXM1 $
+	D[CONST PAN-DATAO-OP] ROT[PAN-CONTROL-ROT] DEST[Q] JUMP[PAN-IOB-WRITE]
+			NORM $
+		;Use DATAx, Out
+		;Send data to drive and go to MAIN
+;CONO XXX,
+	D[IR] MASK[22] DEST[HOLD] NORM $
+		;Use immediate form, i.e. Instruction as data.
+	D[CONST PAN-CONO-OP] ROT[PAN-CONTROL-ROT] DEST[Q] JUMP[PAN-IOB-WRITE]
+			NORM $
+		;Use CONx, Out
+		;Send data to drive and go to MAIN
+;CONI XXX,
+	D[CONST PAN-CONI-OP] ROT[PAN-CONTROL-ROT] DEST[Q] PUSHJ[PAN-IOB-READ]
+			NORM $
+		;Use CONx, In
+	MAPF[PAN-EN-IOB] CYLEN[LONG] D[IOD] ALU[NOTD] DEST[MEMSTO]
+			COND[-MA-AC] LBJUMP[MSMAIN] $
+		;Finish reading data from PAN bus.  Start store and let
+		;MSMAIN finish it.  (LONG is TVR being paranoid)
+;CONSZ XXX,
+	D[CONST PAN-CONI-OP] ROT[PAN-CONTROL-ROT] DEST[Q] PUSHJ[PAN-IOB-READ]
+			NORM $
+		;Use CONx, In
+	MAPF[PAN-EN-IOB] CYLEN[LONG] D[IOD] ALU[NOTD] DEST[Q] JUMP[XXCONSZ] $
+		;Finish reading data from PAN and go do generalized
+		;CONSZ. (LONG is TVR being paranoid)
+;CONSO XXX,
+	D[CONST PAN-CONI-OP] ROT[PAN-CONTROL-ROT] DEST[Q] PUSHJ[PAN-IOB-READ] 
+			NORM $
+		;Use CONx, In
+	MAPF[PAN-EN-IOB] CYLEN[LONG] D[IOD] ALU[NOTD] DEST[Q] JUMP[XXCONSO] $
+		;Finish reading data from PAN and go do generalized
+		;CONSO. (LONG is TVR being paranoid)
+
+;Read from PAN's IOB.  Return to caller to finish read.
+PAN-IOB-READ:
+	D[AR] ROT[36. - 7] ALU[DORQ] DEST[IOD] SPEC[IOB-OUT] NORM $
+		;Set device selection and mode
+	MAPF[PAN-CONTROL] CYLEN[IOB-OUT] $
+		;Finish setting mode and device
+	SPEC[IOB-IN] POPJ C1000 $
+		;Allow 1 usec settling time for device address on PAN bus
+		;Start reading from device
+
+;Write to PAN's IOB.  Jump to MAIN on completion
+PAN-IOB-WRITE:
+	D[AR] ROT[36. - 7] ALU[DORQ] DEST[IOD] SPEC[IOB-OUT] NORM $
+		;Set device selection and mode
+	MAPF[PAN-CONTROL] CYLEN[IOB-OUT] D[MEM] DEST[IOD] SPEC[IOB-OUT] $
+		;Finish setting mode.  Start write to device
+	MAPF[PAN-EN-IOB] CYLEN[IOB-OUT] DEST[MA] SPEC[MA_PC] JUMP[MAIN1] $
+		;Finish writing data.  Start next instruction
+
+;General CONSZ/CONSO termination
+XXCONSO:
+	D[IR] MASK[22] ALU[D&Q] COND[OBUS=0] JUMP[MAIN] C550 $
+	DOSKIP $
+XXCONSZ:
+	D[IR] MASK[22] ALU[D&Q] COND[-OBUS=0] JUMP[MAIN] C550 $
+	DOSKIP $
+
+;------------------------------------------------------------------------------
+;	PAN Interrupts
+;
+;The PAN microinterrupt enable is turned off when the interrupt for that
+;channel is recieved and turned on by PI-CHECK-RQS by setting all of the
+;microinterrupt enables for the PAN to the complement of PI IN PROGRESS and
+;PI REQUEST.  This means that the PAN can only request interrupts whenever
+;something else isn't using those channels.  This implies that any PAN
+;devices must be on the end of CONSZ chains, or else they will steal
+;interrupts from other, interrupt counting devices.
+;------------------------------------------------------------------------------
+PAN-INTR:
+	SPEC[IOB-IN] NORM $
+		;Read status from device
+		;Display PI-WAITING,,IN-PROGRESS on OBUS
+	MAPF[PAN-STATUS] CYLEN[IOB-IN]
+			D[IOD] ROT[1 + 1] ALU[NOTD] DEST[AR Q HOLD] $
+		;Get enabled and interrupting channels
+		;*** Stuff into HOLD for debugging.
+	D[AR] ROT[5 - 1.] ALU[-D&Q] DEST[AR Q] NORM $
+		;And interrupting and enabled channels.  Still have garbage
+		;in other bits
+	D[AR] ROT[36. - 1] MASK[1] DEST[AR] COND[OBUS=0] JUMP[PANNC1] C550 $
+		;Jump if not channel 1.
+		;If it is channel 1, set PI channel in AR
+	D[CONST 1] ROT[35. - 4.] ALU[NOTD] DEST[Q] JUMP[PANIDS] NORM $
+		;Turn off channel 1 and interrupt
+PANNC1:	D[CONST 1] ALU[D&Q] COND[OBUS=0] JUMP[GRNINT] C550 $
+		;Jump if not channel 2.
+	D[CONST 2] DEST[AR] SHORT $
+		;Set PI channel
+	D[CONST 1] ROT[35. - 5.] ALU[NOTD] DEST[Q] JUMP[PANIDS] NORM $
+		;Turn off channel 2 and interrupt
+
+;Micro-interrupt disable.  Used to disable further micro-interrupts until
+;macro-interrupt is taken for that channel.
+PANIDS:	D[14] SPEC[A-MEM-APR] ROT[35. - 10.] ALU[D&Q] DEST[Q] PUSHJ[PANIST] NORM $
+		;Remove interrupting channel from channels ready for interrupts
+		;and set the hardware register to that value.
+	MAPF[PAN-INT-ENB] CYLEN[IOB-OUT] JUMP[PIGEN] $
+		;Finish setting hardware interrupt enables and take
+		;macro-interrupt
+
+;Compute micro-interrupt enabling from state of firmware PI system, and set
+;hardware register in PAN.  Called with Q containing PI channels that are on.
+;Clobbers DEV-ADR and must be followed by MAPF[PAN-INT-ENB]
+PANIST:	D[15] SPEC[A-MEM-APR] ROT[35. - 10.] ALU[-D&Q] DEST[Q] SHORT $
+		;Remove channels in progress
+	D[15] SPEC[A-MEM-APR] ROT[17. - 10.] ALU[-D&Q] DEST[Q IOD] SHORT $
+		;Remove channels which are already waiting.
+	D[CONST PAN-UDEV] DEST[DEV-ADR] SPEC[IOB-OUT] POPJ NORM $
+		;Select PAN interface and turn its micro interrupts on.
+		;There is no way in Hell you can count interrupts a PAN IO bus,
+		;or even know when an interrupt condition has been satisfied.
+
+;Reset PAN, Set interrupt and dispatch addresses
+PANRST:	D[CONST PAN-UDEV] DEST[DEV-ADR] SPEC[IOB-OUT] NORM JUMP[. + 1] $
+		;Start IOB RESET happening.
+	MAPF[PAN-IOB-RESET] CYLEN[IOB-OUT]
+			D[CONST (PAN-DISPATCH / 100)] ROT[30] DEST[Q] $
+		;Construct dispatch address: high 6 bits.  Finish IOB RESET
+	D[CONST (PAN-DISPATCH \ 100)] ROT[22] ALU[DORQ] DEST[Q] NORM $
+		;Low 6 bits
+	D[CONST (PAN-INTR / 100)] ROT[6] ALU[DORQ] DEST[Q] NORM $
+		;Construct interrupt address: high 6 bits
+	D[CONST (PAN-INTR \ 100)] ALU[DORQ] DEST[0] SPEC[DEST-A-MEM] POPJ NORM$
+		;Finish contructing interrupt address and store away.
+		;We're done.
+

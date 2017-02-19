@@ -1,0 +1,420 @@
+;;; MEMTST - F2/F3 memory tester. 
+;Version of 1/19/81  DWP
+
+;Header file defines NMEMS, which controls the amount of
+; memory to be tested.  NMEMS = the number of card-pairs to
+; be tested.
+
+OTP = 1 - NTP
+
+.REPEAT NTP [
+TTY.DI = 0	;read data
+TTY.WD = 12	;write data
+TTY.WC = 14	;write control
+  ] ;NTP
+
+.REPEAT OTP [
+TTY.DI = 0	;read data
+TTY.WD = 4	;write data
+TTY.WC = 10	;write control
+  ] ;OTP
+
+: 2000
+
+INIT:	D[CONST 4] DEST[DEV-ADR] JPOP[. + 1] NORM $
+	D[CONST 4] ROT[6] DEST[Q] NORM JPOP[. + 1] $
+	DEST[CLR-DEV-FROM-INTR] NORM $
+	D[CONST 74] ALU[DORQ] DEST[Q] NORM $
+	D[CONST 3] ROT[6] ALU[DORQ] DEST[IOD] SPEC[IOB-OUT] NORM $
+	MAPF[TTY.WC] CYLEN[IOB-OUT] JPOP[. + 1] $
+	ALU[Q] DEST[IOD] SPEC[IOB-OUT] JPOP[. + 1] NORM $
+	MAPF[TTY.WC] CYLEN[IOB-OUT] JPOP[. + 1] $
+
+ .IF NMEMS > 2
+   [	D[CONST 1] ROT [35. - 8.] DEST[CRYOV] NORM $
+		;HI ABS MA is not what's read by D[MA] 
+		;This causes extended MA to be loaded by STB-MA and
+		;will make this work for now.
+] ;IF NMEMS > 2
+
+ ;; Now we clear memory.
+	ALU[0] DEST[MA HI-ABS-MA] NORM $
+ZLOOP:	ALU[0] DEST[MEMSTO] NORM $
+	D[MA] ALU[D+1] DEST[Q MA HI-ABS-MA] NORM $
+		;Advance to next location.
+	D[CONST NMEMS] ROT[17.] ALU[D-Q] -OBUS=0 JUMP[ZLOOP] $
+		;Check for the XEND-of memory.  Loop if not.
+	DEST[CLR-MI-ERR] JPOP[. + 1] $
+
+.DEFINE TYPLET [LET]
+[	D[CONST LET] DEST[Q] PUSHJ[LTYP] NORM ]
+
+.DEFINE TYPSPC [] [ ;Type a <SPACE>
+	D[CONST 40] DEST[Q] PUSHJ[TYP] NORM ]
+	 ; prnt <SPACE> 
+
+	TYPLET[15] $	;"M"
+	TYPLET[05] $	;"E"
+	TYPLET[15] $	;"M"
+	TYPLET[24] $	;"T"
+	TYPLET[23] $	;"S"
+	TYPLET[24] $	;"T"
+	PUSHJ[TCR] $	;<return><linefeed>
+STRTLP:	D[CONST 1] DEST[DEV-ADR] NORM JPOP[TESTS] $
+
+ .DEFINE TEST [LAB MN LAB2 LAB3 TRYNUM MEMSIZ]
+[	D[MASK MN] DEST[AR] PUSHJ[. + 2] NORM $
+		;Setup thing to test with
+	JUMP[LAB`X] $	;Go to next test.
+  TNUM = TNUM + 1  ;Increment test seq. no.
+	D[CONST TNUM] DEST[4] DEST-A-MEM PUSHJ[LDLTS1] $
+	  ;Put it where error typeouts can find it.
+	ALU[0] DEST[MA HI-ABS-MA] NORM $
+		;Start at memory address 0
+LAB:	D[AR] ROT[1] DEST[AR MEMSTO] NORM $
+		;Rotate test value and store new value in memory
+
+	D[MA] DEST[MA CLR-MI-ERR] NORM $
+	D[AR] DEST[Q] NORM $
+	D[MEM] ALU[D#Q] COND[-OBUS=0] START-IN PUSHJ[ERR1X] C600 $
+		;Check the result of the examine against what was expected
+		;and if no error, prepare to check ECC
+	D[IOD] MAPF[2] ROT[17] MASK[1] COND[-OBUS=0] PUSHJ[ERR1X] $
+	 ;JMP if ECC err
+	D[MA] ALU[D+1] DEST[Q MA HI-ABS-MA] NORM $
+		;Advance to next location
+	D[CONST MEMSIZ] ROT[17.] ALU[D-Q] COND[-OBUS=0] JUMP[LAB] C600 $
+		;Check for XEND-of memory to be tested
+	D[CONST TRYNUM] DEST[CLR-MI-ERR] LLOAD NORM $
+		;Set repeat count for this test and clear error we may
+		;have gotten from running off the XEND-of memory
+LAB3:	D[MASK MN] DEST[AR] NORM $
+		;Setup same thing to test against
+	ALU[0] DEST[MA HI-ABS-MA] NORM $
+		;Start again from the beginning of memory
+		;Also, fetch first word from memory
+LAB2:	D[AR] ROT[1] DEST[AR Q] NORM $
+		;Rotate test value by one and put it where we can
+		;test with it easier
+	D[MEM] ALU[D#Q] COND[-OBUS=0] START-IN PUSHJ[ERR1] C600 $
+		;Check the result of the examine against what was expected
+		;and if no error, prepare to check ECC
+	D[IOD] MAPF[2] ROT[17] MASK[1] COND[-OBUS=0] PUSHJ[ERR1] $
+	 ;JMP if ECC err
+	D[MA] ALU[D+1] DEST[Q MA HI-ABS-MA] NORM $
+		;Advance to next location and start the examine
+	D[CONST MEMSIZ] ROT[17.] ALU[D-Q] COND[-OBUS=0] JUMP[LAB2] C600 $
+		;Check for the XEND-of memory.  Loop if not.
+	LOOP[LAB3] DEST[CLR-MI-ERR] NORM $
+		;Repeat the examine phase N times.
+		;(No more MA 18 jumper!!!)
+	POPJ $
+LAB`X:
+]
+ .DEFINE TESTA [LAB FN RT LAB2 LAB3 TRYNUM MEMSIZ]
+[	ALU[0] DEST[MA HI-ABS-MA] PUSHJ[. + 2] NORM $
+		;Start at memory address 0
+	JUMP[LAB`X] $	;Go to next test.
+  TNUM = TNUM + 1  ;Increment test seq. no.
+	D[CONST TNUM] DEST[4] DEST-A-MEM PUSHJ[LDLTS1] $
+	  ;Put it where error typeouts can find it.
+LAB:	D[MA] ROT[RT] ALU[FN] DEST[AR MEMSTO] NORM $
+		;Perform function FN on MA and store it
+
+	D[MA] DEST[MA CLR-MI-ERR] NORM $
+	D[AR] DEST[Q] NORM $
+	D[MEM] ALU[D#Q] COND[-OBUS=0] START-IN PUSHJ[ERR1X] C600 $
+		;Check the result of the examine against what was expected
+		;and if no error, prepare to check ECC
+	D[IOD] MAPF[2] ROT[17] MASK[1] COND[-OBUS=0] PUSHJ[ERR1X] $
+	 ;JMP if ECC err
+	D[MA] ALU[D+1] DEST[Q MA HI-ABS-MA] NORM $
+		;Advance to next location
+	D[CONST MEMSIZ] ROT[17.] ALU[D-Q] COND[-OBUS=0] JUMP[LAB] C600 $
+		;Check for XEND-of memory to be tested
+	D[CONST TRYNUM] DEST[CLR-MI-ERR] LLOAD NORM $
+		;Set repeat count for this test and clear error we may
+		;have gotten from running off the XEND-of memory
+LAB3:	ALU[0] DEST[MA HI-ABS-MA] NORM $
+		;Start again from the beginning of memory
+		;Also, fetch first word from memory
+LAB2:	D[MA] ROT[RT] ALU[FN] DEST[AR Q] NORM $
+		;Apply function FN to MA and put it where we can
+		;test with it easier
+	D[MEM] ALU[D#Q] COND[-OBUS=0] START-IN PUSHJ[ERR1] C600 $
+		;Check the result of the examine against what was expected
+		;and if no error, prepare to check ECC
+	D[IOD] MAPF[2] ROT[17] MASK[1] COND[-OBUS=0] PUSHJ[ERR1] $
+	 ;JMP if ECC err
+	D[MA] ALU[D+1] DEST[Q MA HI-ABS-MA] NORM $
+		;Advance to next location and start the examine
+	D[CONST MEMSIZ] ROT[17.] ALU[Q-D] COND[-OBUS=0] JUMP[LAB2] C600 $
+		;Check for the XEND-of memory.  Loop if not.
+	LOOP[LAB3] DEST[CLR-MI-ERR] NORM $
+		;Repeat the examine phase N times.
+		;(No more MA 18 jumper!!!)
+	POPJ $
+LAB`X:
+]
+ .DEFINE TESTC [LAB MN LAB2 LAB3 TARG MEMSIZ]
+[	D[MASK MN] DEST[AR] PUSHJ[. + 2] NORM $
+	JUMP[LAB`X] $	;Go to next test.
+  TNUM = TNUM + 1  ;Increment test seq. no.
+	D[CONST TNUM] DEST[4] DEST-A-MEM PUSHJ[LDLTS1] $
+	  ;Put it where error typeouts can find it.
+	ALU[0] DEST[MA HI-ABS-MA] NORM $
+LAB:	D[AR] DEST[MEMSTO] NORM $
+
+	D[MA] DEST[MA CLR-MI-ERR] NORM $
+	D[AR] DEST[Q] NORM $
+	D[MEM] ALU[D#Q] COND[-OBUS=0] START-IN PUSHJ[ERR1X] C600 $
+		;Check the result of the examine against what was expected
+		;and if no error, prepare to check ECC
+	D[IOD] MAPF[2] ROT[17] MASK[1] COND[-OBUS=0] PUSHJ[ERR1X] $
+	 ;JMP if ECC err
+	D[MA] ALU[D+1] DEST[Q MA HI-ABS-MA] NORM $
+	D[CONST MEMSIZ] ROT[17.] ALU[D-Q] COND[-OBUS=0] JUMP[LAB] C600 $
+	D[CONST TARG] DEST[CLR-MI-ERR] LLOAD NORM $
+	D[MASK MN] DEST[AR] NORM $
+LAB3:	ALU[0] DEST[MA HI-ABS-MA] NORM $
+LAB2:	D[AR] DEST[Q] NORM $
+	D[MEM] ALU[D#Q] COND[-OBUS=0] START-IN PUSHJ[ERR1] C600 $
+	D[IOD] MAPF[2] ROT[17] MASK[1] COND[-OBUS=0] PUSHJ[ERR1] $
+	 ;JMP if ECC err
+	D[AR] ALU[NOTD] DEST[MEMSTO] NORM $
+	D[MA] ALU[D+1] DEST[Q MA HI-ABS-MA] NORM $
+	D[CONST MEMSIZ] ROT[17.] ALU[D-Q] COND[-OBUS=0] JUMP[LAB2] C600 $
+	D[AR] ALU[NOTD] DEST[AR] NORM $
+	LOOP[LAB3] DEST[CLR-MI-ERR] NORM $
+	POPJ $
+LAB`X:
+]
+
+TNUM = 0 ;Sequence no. of test currently running (typed on errors)
+
+TESTS:	TEST[ZTST 0 T11 T12 3 NMEMS]
+	TEST[OTST 44 T21 T22 3 NMEMS]
+	TESTA[ADRR D 0 A11 A12 3 NMEMS]
+	TESTA[ADRRN NOTD 0 A21 A22 3 NMEMS]
+	TESTA[ADRL D 14. A31 A32 3 NMEMS]
+	TEST[LHOL 43 T31 T32 3 NMEMS]
+	TEST[LBIT 1 T41 T42 3 NMEMS]
+	TEST[HWD 22 T51 T52 3 NMEMS]
+	TEST[T60 15 T61 T62 3 NMEMS]
+	TESTC[C11 0 C12 C13 10 NMEMS]
+	TESTC[C21 22 C22 C23 3 NMEMS]
+	D[CONST 7] DEST[Q] PUSHJ[TYP] NORM $
+		;Bells (and whistles???) at XEND of pass
+	TYPLET[20] $	;"P"
+	JUMP[STRTLP] NORM $
+
+ .DEFINE GET1 [] [D[CONST 1] DEST[DEV-ADR] START-IN NORM $]
+
+ERR1X:	CURRENTLY-UNUSED[1] PUSHJ[TTEST] $
+	TYPLET[22] $	;"R"
+	JUMP[ERR1X1] $
+
+ERR1:	CURRENTLY-UNUSED[1] PUSHJ[TTEST] $
+ERR1X1:	PUSHJ[ERR2] $
+
+ .REPEAT 2 [ ;Now read the same location 2 more times, checking for errors.
+	TYPLET[03] $ ;"C"
+	TYPSPC $	;<SPACE>
+	D[MA] DEST[MA] NORM $
+	D[AR] DEST[Q] NORM $
+	D[MEM] ALU[D#Q] COND[-OBUS=0] PUSHJ[ERR2] C600 $
+	 ;Type out data errors.
+	GET1
+	D[IOD] MAPF[2] ROT[17] MASK[1] COND[-OBUS=0] PUSHJ[ERR2] $
+	 ;JMP if ECC err
+      ]
+	PUSHJ[TCR] $  ;Type CRLF
+	PUSHJ[LDLTS] $ ; Display bad data in lites.
+	JUMP[SWLOOP] $
+		;Call SWLOOP to test switches for what to do next.
+SWCONT:	START-IN D[CONST 1] DEST[DEV-ADR] POPJ $
+	  ;Go back to test if we return from SWLOOP.
+		;START-IN may be needed by test we are returning to.
+
+ERRSW:	TYPLET[23] $ ;"S"
+	TYPLET[27] $ ;"W"
+	TYPSPC $
+
+ERR2:	  ; TYPE MA & AR
+	D[MA] DEST[Q] PUSHJ[NTYP] NORM $
+	D[AR] DEST[Q] PUSHJ[NTYP] NORM $
+	GET1
+	D[IOD] MAPF[2] ROT[17] MASK[1] COND[-OBUS=0] JUMP[ERR3] $
+	 ;j if ECC ERR
+	D[CONST 47] ROT[1] DEST[Q] PUSHJ[TYP] NORM $
+	 ; prnt N
+	D[CONST 42] ROT[1] ALU[D+1] DEST[Q] PUSHJ[TYP] NORM $
+	 ; prnt E
+	TYPSPC $
+	JUMP[NERR1] NORM $
+ERR3:	 ; Type ECC stuff
+	D[CONST 42] ROT[1] ALU[D+1] DEST[Q] PUSHJ[TYP] NORM $; PRINT E
+	D[CONST 40] DEST[Q] NORM $
+	GET1
+	D[IOD] MAPF[4] ROT[40] MASK[1] COND[OBUS=0] JUMP[. + 2] $; HARD ERR?
+	D[CONST 50] ALU[D+Q] DEST[Q] NORM $
+	PUSHJ[TYP] NORM $
+	GET1
+	MAPF[2] D[IOD] ROT[16] MASK[6] DEST[Q] PUSHJ[NTYP] C800 $
+	GET1
+	MAPF[2] D[IOD] MASK[20.] DEST[Q] C800 $
+	D[MA] ALU[D#Q] COND[OBUS=0] POPJ C600 $
+	D[CONST 46] ROT[1] ALU[D+1] DEST[Q] PUSHJ[TYP] NORM $
+	GET1
+	MAPF[2] D[IOD] MASK[20.] DEST[Q] PUSHJ[NTYP] C800 $
+NERR1:	D[MEM] DEST[Q CLR-MI-ERR] SHORT $
+	D[CONST 1] DEST[DEV-ADR] NORM $
+	START-IN D[AR] ALU[D#Q] C550  OBUS=0 POPJ $
+	 ;Don't type data from memory unless it is in error.
+	D[MEM] DEST[Q] PUSHJ[NTYP] NORM $
+	 ; Type erroneous data.
+	START-IN D[CONST 1] DEST[DEV-ADR] NORM POPJ $
+	 ;Start reading ECC bits for routine we may be returning to.
+
+LDLTS1:	D[14] DEST[HOLD] NORM $
+
+LDLTS:	ALU[0] DEST[DEV-ADR] NORM $	;Prepare to set lights
+	D[MEM] DEST[IOD] SPEC[IOB-OUT] NORM $	;Display what we read
+	D[MEM] $ ;At least some machines use OBUS for this.
+	D[CONST 1] DEST[DEV-ADR] NORM POPJ $
+
+SWLOOP:  ;Examine the CONSOLE SWITCHES to determine next action.
+	 ;Current (1/18/81) options:
+	;EXAMINE, DEPOSIT -- work as in regular microcode.
+	;CONT -- proceed with current test
+	;RESET -- jump to next test
+	;START -- re-start MEMTST
+
+	ALU[0] DEST[DEV-ADR] NORM $
+	 ;First we save the AR.
+	D[AR] DEST[5] DEST-A-MEM NORM $
+	D[AR] DEST[6] DEST-A-MEM NORM $
+	 ;Init the Switch Compare Data to the current test data.
+	START-OUT NORM $
+	MAPF[4] CYLEN[IOB-OUT] $    	;CLR SW FF'S
+	START-IN NORM $
+STPLP1:	D[IOD] DEST[AR] MAPF[4] C800 $	;GET SW BITS
+	D[AR] ROT[10] MASK[1] COND[-OBUS=0] JUMP[RESW2] C550 $	;J IF RESET SW
+	D[AR] ROT[14] MASK[11] DEST[Q] NORM $
+	D[CONST 7] ROT[4] ALU[-D&Q] COND[OBUS=0] START-IN JUMP[STPLP1] C600 $
+		; LOOP IF NO SW
+	SPEC[IOB-OUT] NORM $
+	MAPF[4] CYLEN[IOB-OUT] $    	
+		;CLR SW FF'S
+  .DEFINE SWTEST [ RAMT DIS ADR ]
+      [	D[AR] ROT[RAMT] MASK[1] COND[-OBUS=0] DIS [ ADR ] C550 $
+       ]
+NORSW2:	SWTEST[4 JUMP CONSW]
+	SWTEST[5 JUMP STRTSW]
+	SWTEST[11 JUMP DEPTSW]
+	SWTEST[12 JUMP DEPNSW]
+	SWTEST[13 JUMP EXMTSW]
+	SWTEST[14 JUMP EXMNSW]
+NORSWR:	D[CONST 0] DEST[DEV-ADR] START-IN JUMP[STPLP1] NORM $	;LOOP
+
+RESW2:	START-IN SHORT $
+	D[IOD] DEST[AR]  C800 $	;DOUBLE CHECK RESET SW
+	D[AR] ROT[10] MASK[1] COND[OBUS=0] JUMP[NORSW2] C800 $
+	JPOP[SWCONT] $ ;Return up-level to skip to next test.
+
+STRTSW:	JPOP[. + 1] $
+	 ;Clear stack and restart
+	JPOP[. + 1] $
+	JPOP[. + 1] $
+	JPOP[2000] $
+
+CONSW:	D[15] DEST[AR CLR-MI-ERR]  $
+	D[CONST 1] DEST[DEV-ADR] JUMP[SWCONT] $
+	 ;Restore AR and DEV-ADR and continue.
+
+DEPTSW:	D[AR] MASK[23] DEST[MA HI-ABS-MA] START-IN JUMP[DEPSW1] NORM $
+DEPNSW:	D[MA] ALU[D+1] DEST[MA] NORM START-IN $
+DEPSW1:	D[IOD] DEST[AR MEMSTO] MAPF[2] C800 $
+	D[AR] DEST[6] DEST-A-MEM NORM $ 
+	  ;Update the Switch Compare Data.
+	DEST[CLR-MI-ERR] JUMP[NORSWR] $
+
+EXMTSW:	D[AR] MASK[23] DEST[MA HI-ABS-MA] JUMP[EXMSW1] NORM $
+EXMNSW:	D[MA] ALU[D+1] DEST[MA HI-ABS-MA] JUMP[EXMSW1] NORM $
+
+EXMSW1:	SPEC[IOB-OUT] D[15] DEST[Q AR] NORM $
+	D[MEM] MAPF[2] $
+	 ;Put mem data into data lites.
+	D[16] DEST[AR] $
+	 ;Get Switch Compare Data for error routines.
+	GET1   ;Test for ECC error.
+	D[IOD] MAPF[2] ROT[17] MASK[1] COND[-OBUS=0] PUSHJ[ERRSW] $
+	 ;JMP if ECC err
+	ALU[0] DEST[DEV-ADR] NORM JUMP[NORSWR] $
+
+BRPNT:	D[AR] MASK[27] DEST[Q] NORM $
+	D[PC] MASK[27] ALU[D-Q] COND[-OBUS=0] JUMP[CONSW] C600 $
+	START-IN JUMP[STPLP1] NORM $
+
+TCR:	D[CONST 15] DEST[Q] PUSHJ[TYP] NORM $
+	DEST[CLR-MI-ERR] NORM $
+	D[CONST 12] DEST[Q] PUSHJ[TYP] NORM $
+	D[CONST 1] DEST[DEV-ADR] START-IN POPJ NORM $
+
+TTEST:	TYPLET[24] $	;"T"
+	TYPLET[05] $	;"E"
+	TYPLET[23] $	;"S"
+	TYPLET[24] $	;"T"
+	D[CONST 1] DEST[DEV-ADR] $
+	 ;Get number of current test, and type it out.
+	D[14] DEST[Q] JUMP[NTYP] $
+
+
+NTYP:	 ;Type Q as an octal integer (leading-zero-suppressed) -- save AR
+	 ; Type a space after the number.
+	ACSEL[AC+1] D[AR] DEST[AC] NORM $
+	D[CONST 12.] DEST[AC] NORM $
+	 ;Max. no. of digits
+	ALU[Q] DEST[AR] NORM $
+NTL1:	 ;Skip up to 11. leading 0's
+	D[AR] ROT[3] DEST[AR] NORM $
+	D[AR] MASK[3] DEST[Q] COND[-OBUS=0] JUMP[NTL2] C600 $
+	ALU[AC-1] DEST[AC] COND[-OBUS=0] JUMP[NTL1] C600 $
+	D[CONST 60] DEST[Q] PUSHJ[TYP] NORM $
+	 ;Type the 12th leading 0 and exit.
+NTL3:	D[CONST 40] DEST[Q] PUSHJ[TYP] NORM $
+	 ;Type a space before exiting.
+	ACSEL[AC+1] ALU[AC] DEST[AR] POPJ NORM $
+NTL2:	 ;Type the significant digits.
+	D[CONST 60] ALU[DORQ] DEST[Q] PUSHJ[TYP] NORM $
+	ALU[AC-1] DEST[AC] COND[OBUS=0] JUMP[NTL3] C600 $
+	 ;Exit if 12th digit has been typed.
+	D[AR] ROT[3] DEST[AR] NORM $
+	 ;Get next digit.
+	D[AR] MASK[3] DEST[Q] JUMP[NTL2] NORM $
+
+ ; TYPE OUT CHR IN Q -- saves AR, clobbers IR-ADR
+TYP:	D[CONST 4] DEST[DEV-ADR] NORM $
+	START-IN NORM $
+	D[IOD] DEST[PC] C800 $
+	D[PC] ROT[25] MASK[1] COND[OBUS=0] JUMP[TYP] CYLEN[C650] $
+	 ; wait for rdy
+	D[CONST 40] ROT[6] DEST[IR-ADR] NORM $
+	D[IR] MASK[22] ALU[D-1] DEST[IR-ADR] COND[-OBUS=0] JUMP[.] $
+ .DEFINE TOUT [AL CON MAP]
+[	D[CONST CON] ALU[AL] DEST[IOD] SPEC[IOB-OUT] NORM $
+	MAPF[MAP] CYLEN[IOB-OUT] $
+]
+	TOUT [Q 0 TTY.WD]
+	TOUT [D 75 TTY.WC]
+	TOUT [D 74 TTY.WC]
+	D[CONST 40] ROT[6] DEST[IR-ADR] NORM $
+	D[IR] MASK[22] ALU[D-1] DEST[IR-ADR] COND[-OBUS=0] JUMP[.]  $
+	POPJ NORM $
+;Type a letter (add 100 and call TYP)
+LTYP:	D[CONST 1] ROT[6] ALU[D+Q] DEST[Q] JUMP[TYP] $
+
+: 0
+
+	JUMP[2000]  $  ;Starting addres for bootstrapper
+

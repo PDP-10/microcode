@@ -1,0 +1,30 @@
+;microcrox for SLYMSHARE system
+
+;Initialize switch settings
+.INSERT SWINIT.SLO
+
+; F3 VERSION OF MICROCODE
+
+F2SW = 1
+
+NTP = 1
+TAPE = 1	;These two get latest tape as of 1-1-80
+
+NEWMAP = 1	;SET FOR MACHINES F3-3 AND LATER.
+
+TYMNET = 1
+
+TIMER = 1
+
+IMP = 1		;ARPANET
+
+XLIST
+
+.INSERT CFDEF.SLO
+
+LIST
+
+.INSERT CFNEW
+
+LIST-LABELS
+LIST-CORMAP

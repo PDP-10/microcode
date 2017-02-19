@@ -1,0 +1,309 @@
+;;; DR-11 Foonly microcode.
+;;; Modified from Tymnet microcode March 1981 DAM
+
+;A-MEM USAGE.
+; 0: STANDARD.  (microcode interrupt dispatch address)
+; 1: STATE OF OUTPUT FFS FOR DEV6ST (SEE CFTNET PRINT)
+; 2: INPUT HALFWORD COUNT
+; 3: INPUT HALFWORD POINTER
+; 4: OUTPUT HALFWORD COUNT
+; 5: OUTPUT HALFWORD POINTER
+; 6: INPUT BUFFER,,OUTPUT BUFFER
+; 7: B0-2, STATE OF MAP BEFORE INT; B3-35, INP REG AT INT START
+
+;The buffers in register 6 are used to cut the number of memory
+;cycles in half.
+;The counts are zero when the corresponding process is idle.
+
+
+;MAIN MEMORY LOCATIONS:
+; Refer to DR11.PROTOCOL
+
+;DR11C FLAG NAMES.  (FIELD VALUES).
+TNODIBN = 2	;OUTPUT DONE ROTATE AMOUNT (INPUT) = REQ B.
+TNIRIBN = 3	;INPUT READY ROTATE AMOUNT (INPUT) = REQ A.
+TNODOBN = 6	;OUTPUT DONE ROTATE AMOUNT (OUTPUT) = CSR1.
+TNIROBN = 7	;INPUT READY ROTATE AMOUNT (OUTPUT) = CSR0.
+TNODENB = 2	;TNODIBN INTERRUPT ENABLE
+TNIRENB = 3	;TNIRIBN INTERRUPT ENABLE
+
+;TNODIBN and TNIRIBN are the edge versions, not the versions
+;that come straight from the 11.  In loop-back mode, pulsing
+;TNODOBN causes TNODIBN to become 1, and pulsing TNIROBN causes
+;TNIRIBN to become 1.  TNODIBN is cleared by writing to subdevice
+;TNODIFS, and TNIRIBN is cleared by writing to subdevice TNIRIFS.
+
+;Microcode interrupt from device 6 comes here.  This will be due
+;to input ready or output done having been pulsed by the 11,
+;and the corresponding enable bit set in the output register.
+
+;We have to turn the map off in order to reference exec memory,
+;because there is no hope at all for the getting the damned
+;map-miss microcode to win due to the way the machine is designed.
+;This means we can't address pages which are locked down but not
+;in the same physical page as their virtual address.
+
+TNI:	;;Save map state in A-MEM[7].0-2 & turn map off.
+	DEST[CLR-DEV-FROM-INTR] SPEC[IOB-IN] NORM PUSHJ[MAPOFF] $
+	D[IR] MASK[3] DEST[AR] MAPF[10] CYLEN[IOB-OUT] $ ;MAPF,CYLEN for MAPOFF
+	D[AR] ROT[41] DEST[Q] SHORT $
+	D[CONST 6] DEST[DEV-ADR] SPEC[IOB-IN] NORM $	;Back to device 6
+	;;The map state is in Q.  Read the DR-11 state, put that
+	;;in AR and the both of them in Q and A-MEM[7].
+	MAPF[TYM.RD] D[IOD] MASK[41] DEST[AR] CYLEN[IOB-IN] $
+	D[AR] ALU[DORQ] DEST[Q 7] DEST-A-MEM NORM $
+	;;Is the output-done edge latch on?
+	D[17] ROT[35. - TNODIBN] COND[-OBUS<0] JUMP[TNI1] C550 $
+	;;Yes, run the output channel.
+	D[14] ALU[D-1] DEST[AR]			;Decrement the halfword count
+		COND[OBUS<0] JUMP[DROIDL] C600 $	; and check for idle.
+	D[AR] DEST[4] DEST-A-MEM NORM $		;Write back decremented WC
+	;;Channel active, clear flag from 11 and see which half of word.
+	D[15] MASK[1] COND[OBUS=0] JUMP[DRONWD] C550 $
+	D[16] MASK[16.] DEST[AR] PUSHJ[DRSEND] NORM $	;Output second halfword
+	D[15] ALU[D+1] DEST[AR] NORM $		;Increment pointer
+TNI0:	D[AR] DEST[5] DEST-A-MEM JUMP[TNI1] NORM $
+
+DROSTP:	;; Turn off output interrupt enable (bit 33)
+	D[CONST 1] ROT[TNODENB] ALU[NOTD] DEST[Q] PUSHJ[DEV6CL] NORM $
+TNI1:	;;Is the input-ready edge latch on?
+	D[17] ROT[35. - TNIRIBN] COND[-OBUS<0] JUMP[TNI9] C550 $
+	;;Yes, run the input channel.  Copy input data into AR.
+	D[17] ROT[34] MASK[20] DEST[AR] NORM $
+	;;Check for packet in progress or start of new packet.
+	D[12] ALU[D] COND[OBUS=0] JUMP[DRINPK] C550 $
+	;;Check for need to store a word
+	D[13] ROT[43] DEST[MA] COND[OBUS<0] JUMP[DRINWD] C550 $
+	;;Just buffer this halfword
+	D[16] MASK[18.] DEST[Q] NORM $
+	D[AR] ROT[20.] ALU[DORQ] DEST[6] DEST-A-MEM PUSHJ[DRTAKE] NORM $
+	;;Increment pointer, decrement counter
+	D[13] ALU[D+1] DEST[AR] NORM $
+TNI2:	D[AR] DEST[3] DEST-A-MEM NORM $
+	D[12] ALU[D-1] DEST[AR] NORM $
+	D[AR] DEST[2] DEST-A-MEM COND[-OBUS=0] JUMP[TNI9] C600 $
+	;;That was the end of a packet, deliver to 10
+	D[13] ROT[43] DEST[MA] COND[-OBUS<0] JUMP[TNI3] C550 $
+	;;Oops, there is one halfword still to be stored
+	D[16] SPEC[LEFT] DEST[MEMSTO] NORM $
+TNI3:	;;Read & clear input packet in progress and add to input done list
+	D[CONST 4] DEST[Q] PUSHJ[TNRCW] CYLEN[MEMSTO] $
+	D[MEM] MASK[18.] DEST[Q] SHORT $
+	ALU[0] DEST[MEMSTO] NORM $
+	D[CONST 20] ROT[6] ALU[D] DEST[MA] PUSHJ[DRPUSH] CYLEN[MEMSTO] $
+TNI9:	;;Done: restore state of map and exit back to MAIN
+	D[17] ROT[3] MASK[3] DEST[IOD] CYLEN[MEMSTO] $
+	ALU[0] DEST[DEV-ADR] SPEC[IOB-OUT] JUMP[MPOFF1] NORM $
+
+DRINWD:	;;Input channel has two halfwords to store
+	D[AR] ROT[4] DEST[Q] SHORT $
+	D[16] SPEC[LEFT] ALU[DORQ] DEST[MEMSTO] PUSHJ[DRTAKE] NORM $
+	D[13] ALU[D+1] DEST[AR] JUMP[TNI2] NORM $
+
+DRINPK:	;;Do nothing if interrupt not enabled
+	D[11] ROT[35. - TNIRENB] COND[-OBUS<0] JUMP[TNI9] C550 $
+	;;AR has length of next packet 11 is trying to send
+	D[AR] COND[OBUS=0] JUMP[DRINP9] C550 $;Ignore zero length
+	;;Check input ready list, shut down if empty
+	D[CONST 2] DEST[Q] PUSHJ[TNRCW] NORM $
+	D[MEM] MASK[18.] DEST[IR-ADR]		;Save last pkt in IR RT
+		COND[OBUS=0] JUMP[DRISTP] C550 $
+	;;Get header of first packet on list
+	D[MEM] ROT[18.] MASK[18.] DEST[MA] PUSHJ[CFIXM0] NORM $
+	;;Compare length field in header against length from 11,
+	;;ignore it if too large (this aids resynchronization after booting)
+	D[MEM] ROT[18.] MASK[18.] DEST[Q] SHORT $
+	D[AR] ALU[Q-D] COND[OBUS<0] JUMP[DRINP9] C600 $
+	;;Q gets new list header: cdr of that packet,,old last
+	D[IR] MASK[18.] DEST[Q] SHORT $
+	D[MEM] ROT[18.] SPEC[LEFT] ALU[DORQ] DEST[Q] SHORT $
+	;;Smash packet's header with incoming length and 0 cdr
+	D[AR] ROT[18.] DEST[MEMSTO] NORM $
+	;;Store packet length in A memory
+	D[AR] DEST[2] DEST-A-MEM NORM $		;Save word count
+	;;Set up the input halfword pointer to point to it.
+	D[MA] MASK[18.] ALU[D+1] DEST[AR] CYLEN[MEMSTO] $
+	D[AR] ROT[1] DEST[3] DEST-A-MEM NORM $
+	;;Cdr the ready list
+	D[MASK 18.] ROT[18.] ALU[D&Q] DEST[AR]
+		COND[OBUS=0] JUMP[DRINP1] C550 $
+	ALU[Q] DEST[AR] SHORT $
+DRINP1:	D[CONST 2] DEST[Q] PUSHJ[TNRCW] NORM $
+	D[AR] DEST[MEMSTO] NORM $
+	;; Store the packet into packet in progress
+	D[CONST 4] DEST[Q] PUSHJ[TNRCW] CYLEN[MEMSTO] $
+	D[13] ROT[43] ALU[D-1] DEST[MEMSTO] NORM $
+DRINP9:	;;Take input from 11 and return
+	PUSHJ[DRTAKE] CYLEN[MEMSTO] $
+	JUMP[TNI9] NORM $
+
+DRISTP:	;;No place to put this packet, stop input channel
+	;; Turn off input interrupt enable (bit 32)
+	D[CONST 1] ROT[TNIRENB] ALU[NOTD] DEST[Q] PUSHJ[DEV6CL] NORM $
+	;;Clear packet word count, the -11 is still sending it
+	ALU[0] DEST[2] DEST-A-MEM JUMP[TNI9] NORM $
+
+;Output channel needs to fetch another word
+DRONWD:	;;Start read of word, also finish clearing output-done flag
+	D[15] ROT[43] MASK[18.] DEST[MA] PUSHJ[CFIXM0] NORM $
+	D[16] SPEC[LEFT] DEST[Q] NORM $		;Copy input buffer into Q
+	D[MEM] ROT[32.] MASK[16.] ALU[DORQ]	;Merge second hwd into buf
+		DEST[6] DEST-A-MEM NORM $
+	D[MEM] ROT[16.] MASK[16.] DEST[AR]	;Transmit first halfword
+		PUSHJ[DRSEND] NORM $
+	D[15] ALU[D+1] DEST[AR] JUMP[TNI0] NORM $	;Increment pointer
+
+;Here when DR11 says output done and we have no current output packet
+DROIDL:	;;Check interrupt enable.  If 0, don't do anything.
+	D[11] ROT[35. - TNODENB] COND[-OBUS<0] JUMP[TNI1] C550 $
+	;;Clean up packet in progress if any.
+	D[CONST 5] DEST[Q] PUSHJ[TNRCW] NORM $
+	D[MEM] MASK[18.] DEST[Q] COND[OBUS=0] JUMP[DROI1] C550 $
+	ALU[0] DEST[MEMSTO] NORM $		;Store back zero
+	D[CONST 20] ROT[6] ALU[D+1] DEST[MA]	;Add packet in Q to list
+		PUSHJ[DRPUSH] CYLEN[MEMSTO] $
+DROI1:	;;Check output ready list.
+	D[CONST 3] DEST[Q] PUSHJ[TNRCW] CYLEN[MEMSTO] $
+	D[MEM] COND[OBUS=0] JUMP[DROSTP] C550 $	;Shut down if empty
+	;;Get header of first packet on list
+	D[MEM] ROT[18.] MASK[18.] DEST[Q MA] PUSHJ[CFIXM0] NORM $
+	;;Set up the output halfword pointer to point to it.
+	ALU[Q+1] DEST[AR] SHORT $
+	D[AR] ROT[1] DEST[5] DEST-A-MEM NORM $
+	;;Save the halfword count, and send it to the 11.
+	D[MEM] ROT[18.] MASK[16.] DEST[AR 4] DEST-A-MEM PUSHJ[DRSEND] NORM $
+	;;Save the cdr: second packet on list.
+	D[MEM] ROT[18.] SPEC[LEFT] DEST[AR] SHORT $
+	;;Clobber the cdr to zero.
+	D[MEM] SPEC[LEFT] DEST[MEMSTO] NORM $
+	;;Cdr the ready list
+	D[CONST 3] DEST[Q] PUSHJ[TNRCW] CYLEN[MEMSTO] $
+	D[AR] DEST[Q] COND[OBUS=0] JUMP[DROI2] C550 $
+	D[MEM] MASK[18.] ALU[DORQ] DEST[MEMSTO] NORM JUMP[DROI3] $
+DROI2:	ALU[0] DEST[MEMSTO] NORM $		;empty
+DROI3:	;; Store the packet into packet in progress
+	D[CONST 5] DEST[Q] PUSHJ[TNRCW] CYLEN[MEMSTO] $
+	D[15] ROT[43] ALU[D-1] DEST[MEMSTO] JUMP[TNI1] $
+
+;;; Subroutines
+
+;AR<20:35> contains 16 bits to go out the DR-11, rest of AR is zero
+;This clears the output-done flag then sends new data then pulses the
+;input-ready line as seen by the 11.
+DRSEND:	D[AR] ROT[8] DEST[AR] SPEC[IOB-OUT] NORM $ ;Align as hardware wants
+	;; Output the data and drop TNIROBN (input ready seen by 11)
+	D[MASK 8] DEST[Q] MAPF[TNODIFS] CYLEN[IOB-OUT] $
+	D[CONST 1] ROT[TNIROBN] ALU[-D&Q] DEST[Q]
+		PUSHJ[DEV6ST1] NORM $
+	;; Raise to-11 input ready again and return
+	D[CONST 1] ROT[TNIROBN] DEST[AR] JUMP[DEV6ST2] NORM $
+
+;;;Take input from 11, smashing Q and AR
+;;;This both clears the ready-for-input interrupt and pulses
+;;;the CSR1 line, telling the 11 to send more input.
+DRTAKE:	ALU[0] DEST[AR] SPEC[IOB-OUT] CYLEN[MEMSTO] $
+	D[MASK 43] ROT[TNODOBN + 1] DEST[Q] PUSHJ[DEV6ST1]
+		MAPF[TNIRIFS] CYLEN[IOB-OUT] $
+	D[CONST 1] ROT[TNODOBN] DEST[AR] NORM JUMP[DEV6ST2] $
+
+;Read memory location 2000+Q
+TNRCW:	D[CONST 20] ROT[6] ALU[DORQ] DEST[MA] NORM $
+CFIXM0:	FIXM0 POPJ $
+
+;Put packet in Q onto list whose header address is in MA
+;Its cdr must already be zero.
+;Location returned to must have CYLEN[MEMSTO]
+DRPUSH:	FIXM0 $
+	;; Is list empty?
+	D[MEM] DEST[AR] COND[OBUS=0] JUMP[DRPSH1] C550 $
+	;; Preserve first, change last
+	D[AR] SPEC[LEFT] ALU[DORQ] DEST[MEMSTO] NORM $
+	;; Rplacd old last to new last
+	D[AR] MASK[18.] DEST[MA] PUSHJ[CFIXM0] CYLEN[MEMSTO] $
+	D[MEM] SPEC[LEFT] ALU[DORQ] DEST[MEMSTO] POPJ $
+
+;List was empty, store back Q,,Q
+DRPSH1:	ALU[Q] DEST[AR] SHORT $
+	D[AR] ROT[18.] ALU[DORQ] DEST[MEMSTO] POPJ $
+
+;;; IOT Instructions
+;;; It's too much of a pain to make these priveleged, since you have to
+;;; check for USR IOT mode manually.  And the TYMNET ones aren't priveleged.
+;;; We aren't fascist anyway.
+
+TYMAREA:	;SAVE LOCATION
+
+	.OPCODE[744]	;RESET TYMNET
+
+	D[IR] ROT[13.] MASK[2] COND[OBUS=0] JUMP[DR11R] C550 $
+	D[IR] ROT[13.] MASK[1] COND[-OBUS=0] LBJUMP[DR11WO] C550 $
+
+	.OPCODE[745]	;DIRECT OUTPUT
+
+	D[CONST 6] DEST[DEV-ADR] JUMP[DR11O] NORM $
+	NOP $
+
+	.OPCODE[746]	;DIRECT INPUT
+
+	D[CONST 6] DEST[DEV-ADR] NORM JUMP[DR11I] $
+	NOP $
+
+	.OPCODE[747]	;DEBUG (DUMP A-MEMORY)     ((FORMERLY F5DIAG))
+
+	D[CONST 6] DEST[DEV-ADR] NORM JUMP[DR11DB] $
+	NOP $
+
+	.USE[TYMAREA]	;RETURN TO MAIN CODE
+
+;;; 744 0,E   (DR11R)  Reset the microcode, and send E to the control register:
+;;;			 30-31  CSR0, CSR1 to 11  (input ready, output done)
+;;;			 32-33  not connected
+;;;			 34-35  interrupt enables (input, output)
+DR11R:	D[MA] ROT[2] DEST[AR] SHORT $	;Align control register
+	D[MASK 6] ROT[2] ALU[NOTD] DEST[Q] PUSHJ[DEV6ST] NORM $
+	ALU[0] DEST[2] DEST-A-MEM NORM $	;Reset both halfword counters
+	ALU[0] DEST[4] DEST-A-MEM NORM $
+	ALU[0] DEST[3] DEST-A-MEM NORM $	;Clear other locations only
+	ALU[0] DEST[5] DEST-A-MEM NORM $	; to make debugging easier
+	ALU[0] DEST[6] DEST-A-MEM NORM $	; ..
+	SPEC[IOB-OUT] NORM $
+	MAPF[TNODIFS] SPEC[IOB-OUT] CYLEN[IOB-OUT] $	;Reset output done flag
+	MAPF[TNIRIFS] CYLEN[IOB-OUT] JUMP[DR11R1] $	;Reset input ready flag
+
+	.PAIR
+;;; 744 2,0   (DR11WO)	Wake up the output microcode
+DR11WO:	D[CONST 1] ROT[TNODENB] ALU[NOTD] DEST[Q] JUMP[DR11W] NORM $
+;;; 744 1,0   (DR11WI)	Wake up the input microcode
+	D[CONST 1] ROT[TNIRENB] ALU[NOTD] DEST[Q] SHORT $
+DR11W:	ALU[NOTQ] DEST[AR] PUSHJ[DEV6ST] NORM $
+DR11R1:	ALU[0] DEST[DEV-ADR] JUMP[MAIN] NORM $
+
+;;; 745 0,E   (DR11O)	Output E low 16 bits to pdp11
+DR11O:	D[MA] MASK[16.] DEST[AR] PUSHJ[DRSEND] NORM $	;Transmit data
+	ALU[0] DEST[DEV-ADR] JUMP[MAIN] NORM $
+
+;;; 746 0,E   (DR11I)	Input from pdp11 to C(E)
+DR11I:	D[CONST 25.] LLOAD NORM $
+	NORM LOOP[.] $  ;GIVE DMA DEVICES SOME MEMORY TIME.  (???????)
+	SPEC[IOB-IN] NORM $
+	MAPF[TYM.RD] D[IOD] ROT[27. + 1] DEST[AR MEMSTO] PUSHJ[STONXT] C800 $
+	   ;Align input word with 16 data bits at RIGHT end.
+	D[AR] ROT[4] C550 COND[-OBUS<0] JUMP[. + 2] $
+	   ;Don't clear "INPUT RDY" flag unless it's on.
+	PUSHJ[DRTAKE] NORM $	;it's on
+	ALU[0] DEST[DEV-ADR] JUMP[MAIN] NORM $
+
+;;; 747 0,E   (DR11DB)   Dump device A-memory into E..E+7
+DR11DB:	D[10] DEST[MEMSTO] PUSHJ[STONXT] NORM $
+	D[11] DEST[MEMSTO] PUSHJ[STONXT] NORM $
+	D[12] DEST[MEMSTO] PUSHJ[STONXT] NORM $
+	D[13] DEST[MEMSTO] PUSHJ[STONXT] NORM $
+	D[14] DEST[MEMSTO] PUSHJ[STONXT] NORM $
+	D[15] DEST[MEMSTO] PUSHJ[STONXT] NORM $
+	D[16] DEST[MEMSTO] PUSHJ[STONXT] NORM $
+	D[17] DEST[MEMSTO] PUSHJ[STONXT] NORM $
+	ALU[0] DEST[DEV-ADR] JUMP[MAIN] NORM $
+
+STONXT:	MAPF[NORM-WRT] COND[-MA-AC] JUMP[STONX1] CYLEN[MEMSTO] $
+	ACSEL[MA] D[MEM] DEST[AC] NORM $
+STONX1:	D[MA] ALU[D+1] DEST[MA] POPJ NORM $

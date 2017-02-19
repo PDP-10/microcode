@@ -1,0 +1,365 @@
+;------------------------------------------------------------------------------
+;
+;TELEX TAPE CONTROL UCODE
+;
+;------------------------------------------------------------------------------
+
+;TAPE READING AND WRITING CODE
+; A-MEM USEAGE:
+;		0	DISPATCH ADDR.
+;		5	SAVED COPY OF WORD COUNT (WRITE)
+;		6	MASK FOR TESTING ERROR STATUS (WRITE)
+
+TLXRST:  ;RESET the formatter and drive.
+	SPEC[IOB-OUT] D[CONST 1] ROT[35. - 30.] DEST[IOD] $
+	 ;Set the SYSTEM RESET line to fmtr.
+	MAPF[2] D[CONST 8] C800 LLOAD $ ;Get wait count.
+	LOOP[.] $ ;Wait about 8 microseconds.
+	SPEC[IOB-OUT] ALU[0] DEST[IOD] $ ;Clear the signal.
+	MAPF[2] LONG POPJ $
+
+   ;727 - OBSOLETE VERSION OF READ
+	.PAIR
+	UIOTRP[MUUO] $
+TAPERD:	NORM PUSHJ[TLXRGO] $
+	D[MASK 17.] DEST[IR-ADR] PUSHJ[TRP2] NORM $
+		;MOVE STATUS INTO AC.
+	ALU[Q] DEST[AC] ACSEL[AC] MAPF[2] JUMP[MAIN] CYLEN[IOB-OUT] $
+
+; TLXRGO -- CALLED START TAPE MOTION.   WAITS FOR FIRST BYTE.
+TLXRGO:	D[CONST 7] ROT[27.] DEST[Q] $
+		;Construct mode information for TELEX formatter
+	SPEC[IOB-OUT] D[CONST 6] ROT[6] ALU[DORQ] DEST[IOD] NORM $
+		;Set mode for tape controller to talk to TELEX
+		;7000,,600 means:
+		;[Put meaning of command here]
+	MAPF[4] SPEC[IOB-OUT] D[CONST 2] ROT[9.] DEST[IOD Q] 
+	  CYLEN[IOB-OUT] PUSHJ[TLXGOA] $
+		;? Initialize command register
+;	\ /
+TLXWAIT:
+	MAPF[2] SPEC[IOB-IN] $
+		;MAPF[2] is used to finish clearing 
+	; command register by caller
+	MAPF[1] D[CONST 77] ROT[12.] DEST[AR] NORM $
+		;Clear read data ready flag
+TLXW1:	SPEC[IOB-IN] D[AR] ALU[D-1] DEST[AR] 
+		C550 COND[OBUS=0] JUMP[TLXW2] $
+	MAPF[2] D[IOD] DEST[HOLD] C800 $
+	D[MEM] ROT[27.] MASK[1] COND[OBUS=0] JUMP[TLXW1] C550 $
+TLXW2:	NORM POPJ $
+
+TLXGOA:	MAPF[2] SPEC[IOB-IN] CYLEN[IOB-OUT] $
+	MAPF[4] D[IOD] DEST[HOLD] $ ;GET STATUS BITS.
+	D[MEM] ROT[13.] C550 -OBUS<0 JUMP[TLXGOA] $
+	  ;WAIT FOR FORMATTER NOT BUSY.
+	SPEC[IOB-OUT] D[CONST 41] ROT[35. - 8.] DEST[IOD] NORM $
+		;RESET THE CONTROLLER ERROR CONDITIONS.
+	MAPF[1] SPEC[IOB-OUT] D[CONST 1] ROT[6] ALU[DORQ] DEST[IOD] 
+		CYLEN[IOB-OUT] $
+		;Start tape going forward
+TLXL1:	MAPF[2] SPEC[IOB-IN] CYLEN[IOB-OUT] $
+		;Finish setting tape moving [fall thru case]
+		;Get status from formatter
+	MAPF[4] D[IOD] DEST[HOLD] LONG $
+		;Put it in hold to avoid synchronizer problems
+	D[MEM] ROT[13.] OBUS<0 C550 JUMP[TLXL1] $
+		;Wait for formatter to say it's going
+	SPEC[IOB-OUT] ALU[Q] DEST[IOD] NORM $
+	MAPF[2] CYLEN[IOB-OUT] POPJ $
+		;Drop move forward request
+
+FMNBWT:	  ;Wait for formatter to be not busy.
+	MAPF[4] D[IOD] DEST[HOLD] $ ;GET STATUS BITS.
+	SPEC[IOB-IN] D[MEM] ROT[13.] C550 -OBUS<0 JUMP[FMNBWT] $
+	NORM POPJ $
+
+;READ A RECORD.  STORE UP TO C(IR-ADR) WORDS.
+TRP2:	PUSHJ[TRBYTE] C500 $
+	MAPF[2] D[MEM] ROT[34] DEST[Q] PUSHJ[TRBYTE] C500 $
+	MAPF[2] D[MEM] ROT[24] ALU[DORQ] DEST[Q] PUSHJ[TRBYTE] C500 $
+	MAPF[2] D[MEM] ROT[14] ALU[DORQ] DEST[Q] PUSHJ[TRBYTE] C500 $
+	MAPF[2] D[MEM] ROT[4] ALU[DORQ] DEST[Q] PUSHJ[TRBYTE] C500 $
+	MAPF[2] D[IR] MASK[18.] ALU[D-1] DEST[IR-ADR] C600 
+		COND[OBUS18] JUMP[TRP2] $
+	D[MEM] MASK[4]  ALU[DORQ] DEST[MEMSTO] NORM $
+	D[MA] ALU[D+1] DEST[MA] JUMP[TRP2] NORM $
+
+;READ 1 BYTE.  IF ERROR, EOR, EOF, SET Q_2,HIGHEST LOC WRITTEN+1,1 & POP
+; ONE OFF THE STACK AND RETURN.  IF BYTE SUCCESSFULLY
+; READ, JUST RETURN WITH BYTE IN HOLD.
+
+TRBYTE:	SPEC[IOB-IN] D[CONST 35] DEST[IOD] LLOAD NORM $
+		;Ask tape for a byte and status thereof
+		;Set loop counter to do timeout
+		;Set IOD hold register for later use to acknowledge
+		;byte.  (The acknowledge bit is the only bit in the
+		;constant 35 that is seen by the hardware.)
+TRBY1:	MAPF[2] D[IOD] ALU[NOTD] DEST[HOLD] C800 LOOP[TRBY2] $
+		;Read byte and status.  Byte comes complemented.
+		;Result is put in HOLD to avoid synchronizer problems
+		;Do timeout check and branch if still waiting
+	SPEC[IOB-IN] NORM JUMP[TRCHECK] $
+		;Byte wasn't ready in time.  Go find out why
+;	---
+TRBY2:
+	SPEC[IOB-IN] D[MEM] ROT[26.] OBUS<0 C550 JUMP[TRBY1] $
+		;Check for byte ready (this is a two instruction loop)
+		;Start getting byte and status again in case we have
+		;  to loop
+;;;;	MAPF[2] SPEC[IOB-IN] D[IOD] ALU[NOTD] DEST[HOLD] LONG $
+	MAPF[1] SPEC[IOB-OUT] D[MEM] MASK[10] DEST[HOLD] C550 $
+		;MAPF[1] clears byte ready
+		;Raise acknowledge.  Note that IOD was set up at the top
+		;  of the loop to contain acknowledge bit (and some junk
+		;  which the hardware will ignore)
+		;Extract data byte from other status information
+	MAPF[2] SPEC[IOB-OUT] ALU[0] DEST[IOD] C550 POPJ $
+		;Drop acknowledge again.
+		;WARNING: MAPF[2] must be in instruction at return
+		;  address for this to work.
+;	---
+
+
+TRCHECK:	MAPF[4] D[IOD] DEST[HOLD] $ ;GET STATUS BITS.
+	SPEC[IOB-IN] D[MEM] ROT[13.] C550 -OBUS<0 JUMP[TRCHECK] $
+	  ;WAIT FOR FORMATTER NOT BUSY.
+	D[MEM] ROT[17.] C550 -OBUS<0 JUMP[TRERR] $
+	  ;CHECK FOR ERROR STATUS.
+	D[MEM] ROT[16.] C550 -OBUS<0 JUMP[TRERR] $
+	  ;CHECK FOR OVERRUN ERROR.
+	D[MEM] ROT[22.] C550 -OBUS<0 JUMP[TREOF] $
+	  ;IF ENDX OF FILE NOT SEEN, WE ARE DONE.
+TREOR:	D[MA] MASK[24] DEST[Q] NORM JUMP[TRDONE] $ ;ENDX OF REC.
+TRDONE:	NORM JPOP[. + 1] $  ;REMOVE ONE RETURN ADDR FROM STACK.
+	NORM POPJ $	;RETURN UPLEVEL (CODE IN Q)
+TREOF:	D[CONST 60] ROT[36] DEST[Q]  NORM JUMP[TRDONE] $
+TRERR:	D[CONST 50] ROT[36] DEST[Q] NORM JUMP[TRDONE] $
+
+
+	.PAIR
+	UIOTRP[MUUO] $
+TAPEMT:	;OPCODE 726 -- MTAPE FUNCTIONS.
+	D[MA] DEST[Q] COND[OBUS=0] JUMP[TAPERW] C550 $
+	D[CONST 5] ALU[D-Q] COND[OBUS=0] JUMP[TAPEFR] C550 $
+	D[CONST 6] ALU[D-Q] COND[OBUS=0] JUMP[TAPEBR] C550 $
+	D[CONST 1] ALU[D-Q] COND[OBUS=0] JUMP[TWREOF] C550 $
+	JUMP[MAIN] $ ;UNKNOWN CODE -- TREAT AS NOP.
+
+TWREOF:	 ;WRITE AN ENDX OF FILE (TAPE MARK)
+	D[CONST 37] DEST[HOLD] NORM JUMP[TLXMTP] $
+
+TLXMTP:	SPEC[IOB-OUT] ALU[0] DEST[IOD] NORM $
+	MAPF[4] SPEC[IOB-OUT] D[MEM] ROT[9.] DEST[IOD Q]
+	    CYLEN[IOB-OUT] PUSHJ[TLXGOA] $
+	MAPF[2] JUMP[MAIN] $
+
+TAPERW:	;REWIND
+	D[CONST 7] DEST[HOLD] NORM JUMP[TLXMTP] $
+
+TAPEFR:	;SKIP FORWARD ONE RECORD.
+	D[CONST 4] DEST[HOLD] NORM JUMP[TLXMTP] $
+
+TAPEBR:	;SKIP BACKWARD ONE RECORD.
+	D[CONST 5] DEST[HOLD] NORM JUMP[TLXMTP] $
+
+TAPERS:	;OPCODE 727 -- READ STATUS BITS FROM TAPE DRIVE.
+
+.DEFINE TSS[A B]   
+[  ;MOVE BIT A OF AR TO BIT B OF Q.
+  	D[AR] ROT[1 + A] MASK[1] DEST[HOLD] NORM $
+	D[MEM] ROT[35. - B] ALU[DORQ] DEST[Q] NORM $ ]
+
+	SPEC[IOB-OUT] ALU[0] DEST[IOD] NORM $
+	MAPF[4] SPEC[IOB-OUT] D[CONST 24] ROT[9.] DEST[IOD Q]
+	    CYLEN[IOB-OUT] PUSHJ[TLXGOA] $
+	MAPF[2] SPEC[IOB-IN] ALU[0] DEST[Q] C800 $
+	MAPF[4] D[IOD] ALU[NOTD] DEST[AR] C800 $
+	D[AR] ROT[13.] C550 OBUS<0 JUMP[. - 2] $
+	TSS[ 5 30. ]	;ON LINE
+	TSS[ 0 31. ]	;REWINDING
+	TSS[ 7 32. ]	;FILE PROTECT
+	TSS[ 3 33. ]	;LOAD POINT
+	TSS[ 6 34. ]	;READY
+	TSS[ 4 35. ]	;ENDX OF TAPE
+	ALU[Q] DEST[MEMSTO] NORM
+		COND[-MA-AC] LBJUMP[SMAIN] $
+
+
+	.PAIR
+	UIOTRP[MUUO] $
+TAPENR:	;730, AC/COUNT.  READ WHOLE RECORD,
+	;STORING UP TO COUNT WORDS STARTING AT EFF ADR.
+	;IF AC<>0 RETURN STATUS AS FOR 727.
+	 ;SWAP AC AND MA, THEN DO TAPERX.
+	D[MA] DEST[O_AC MA] ACSEL[AC]  NORM JUMP[TAPERX] $ 
+
+	.PAIR
+	UIOTRP[MUUO] $
+TAPERX:	;732 - (AC) IS START ADDR., E IS # OF WORDS TO READ.
+	NORM PUSHJ[TLXRGO] $ ;GET TAPE STARTED.
+	ALU[AC] ACSEL[AC] DEST[MA] PUSHJ[TRP2] NORM $ ;READ REC.
+		;MOVE STATUS INTO AC.
+	D[IR] COND[-OBUS18] JUMP[TNRP3] C550 $ ; WAS RECORD TOO LONG ?
+	D[CONST 44] ROT[30.] ALU[DORQ] DEST[Q] NORM $ ;YES, SET BIT 3.
+TNRP3:	ALU[Q] DEST[AC] ACSEL[AC] JPOP[MAIN] NORM $  ;NO, NOT TOO LONG.
+
+
+UTAPWR:	UIOTRP[MUUO] $
+	D[CONST 2] ROT[6] DEST[IOD] SPEC[IOB-OUT] NORM JUMP[TAPEWR] $
+		;Copy of thing in dispatch
+TAPEWR:	;731, AC/ADR, E/+COUNT.  WRITE RECORD OF +COUNT
+	; WORDS, DATA FROM ADR.
+	;SET AC:=0 IF OPERATION COMPLETED SUCCESSFULLY.
+	; SET AC:=<SETZ> + HIGHEST ADR READ IF REACHED
+	; EOT DURING OPERATION (CURRENTLY THIS IS THE ONLY
+	; ERROR CONDITION.)  OPERATION IS COMPLETED EVEN
+	; IF EOT IS PASSED.
+
+	SPEC[IOB-OUT] ALU[0] DEST[IOD] NORM $ ;CLEAR CTRL REG.
+	MAPF[4] D[CONST 31] ROT[27.] DEST[Q] CYLEN[IOB-OUT] $
+		;Construct mode information for TELEX formatter
+	SPEC[IOB-OUT] D[CONST 2] ROT[18.] ALU[DORQ] DEST[IOD] NORM $
+		;Set mode for tape controller to talk to TELEX
+		;31002,,0 means:
+		;[Put meaning of command here]
+	MAPF[4] SPEC[IOB-OUT] D[CONST 1] ROT[9.] DEST[IOD Q] 
+	  CYLEN[IOB-OUT] PUSHJ[TLXGOA] $
+		;? Initialize command register
+	
+	D[CONST 1] ROT[9. + 18.] DEST[Q] NORM $
+	 ;Mask bit for testing ROM PAR ERR in fmtr.
+	D[CONST 3] ROT[18.] ALU[DORQ] DEST[6] DEST-A-MEM NORM $
+	 ;Add bits for OVRRUN and DATA CHK  - store mask in AMEM(6)
+	D[MA] MASK[18.] DEST[AR 5] DEST-A-MEM NORM $
+	 ;Move wc to AR, and preserve in AMEM(5) for retry.
+TWRTRY:	ALU[AC] ACSEL[AC] DEST[MA] NORM $
+	 ;Fetch first word to be written.
+TWNW:	FIXM1 $
+	SPEC[IOB-IN] D[MEM] ROT[8] MASK[8] DEST[IOD] PUSHJ[TWBYTE] NORM $
+	SPEC[IOB-IN] D[MEM] ROT[20] MASK[8] DEST[IOD] PUSHJ[TWBYTE] NORM $
+	SPEC[IOB-IN] D[MEM] ROT[30] MASK[8] DEST[IOD] PUSHJ[TWBYTE] NORM $
+	SPEC[IOB-IN] D[MEM] ROT[40] MASK[8] DEST[IOD] PUSHJ[TWBYTE] NORM $
+	D[AR] ALU[D-1] DEST[AR] C600 COND[OBUS=0] JUMP[TWNW1] $
+	SPEC[IOB-IN] D[MEM] MASK[4] DEST[IOD] PUSHJ[TWBYTE] NORM $
+	D[MA] ALU[D+1] DEST[MA] NORM JUMP[TWNW] $ ;Fetch next word.
+
+TWNW1:	D[MEM] MASK[4] DEST[Q] NORM $
+	SPEC[IOB-IN] D[CONST 1] ROT[35. - 1] ALU[DORQ] DEST[IOD] NORM PUSHJ[TWBYTE] $
+
+	SPEC[IOB-IN] PUSHJ[FMNBWT] $
+	  ;WAIT FOR FORMATTER NOT BUSY.
+	D[MEM] ALU[NOTD] DEST[Q] NORM $ ;Complement of status to Q
+	D[16] ALU[D&Q] C550 COND[-OBUS=0] JUMP[TWERR] $ ;Test err bits.
+	ALU[0] DEST[AC] NORM $ ;We return 0 in AC if no EOT.
+	D[MEM] ROT[4] C550 OBUS<0 JUMP[MAIN] $
+	 ;If no EOT seen, all done.
+	D[MA] MASK[18.] DEST[AC] NORM $ ;EOT seen. Get ending MA.
+	D[CONST 40] ROT[35. - 5] ALU[DORAC] DEST[AC] NORM JUMP[MAIN] $
+	 ;Turn on bit 0 to indicate EOT seen during operation.
+
+TWBYTE:	MAPF[4] D[IOD] ALU[NOTD] DEST[Q] C800 $
+	 ;Read TP STAT (complemented).
+	D[16] ALU[D&Q] C550 COND[-OBUS=0] JUMP[TWERR] $ ;Test err bits.
+	SPEC[IOB-IN] D[CONST 2] ALU[D&Q] C550 COND[-OBUS=0] JUMP[TWBYTE] $
+	SPEC[IOB-OUT] SHORT $
+	MAPF[14] C800 POPJ $
+
+TWERR:	SPEC[IOB-IN] NORM PUSHJ[FMNBWT] $  ;WAIT FOR NOT BUSY.
+	NORM PUSHJ[TLXRST] $ ;Blast the tape formatter and drive
+	SPEC[IOB-IN] NORM PUSHJ[FMNBWT] $ ;Wait for formatter idle.
+	SPEC[IOB-OUT] D[CONST 5] ROT[9.] DEST[IOD Q] PUSHJ[TLXGOA] $
+	 ;Start a BACKSPACE RECORD command.
+	SPEC[IOB-IN] NORM PUSHJ[FMNBWT] $ ;Wait for completion.
+	SPEC[IOB-OUT] D[CONST 27] ROT[9.] DEST[IOD Q] PUSHJ[TLXGOA] $
+	 ;Start an ERASE 3.5" GAP command.
+	SPEC[IOB-IN] NORM PUSHJ[FMNBWT] $ ;Wait for completion.
+	SPEC[IOB-OUT] D[CONST 1] ROT[9.] DEST[IOD Q] NORM
+	  PUSHJ[TLXGOA] $ ;Start write operation over again.
+	D[15] DEST[AR] NORM JUMP[TWRTRY] $ ;Recover WC and retry op.
+
+;BOOTSTRAP LOADER FOR MACROCODE.
+
+	.ORG[5000]
+MBOOT:	JUMP[5001] CYLEN[LONG] $
+	ALU[0] DEST[HI-ABS-MA] PUSHJ[CCLR] NORM $
+	D[CONST 1] ROT[18.] DEST[HI-ABS-MA] PUSHJ[CCLR] NORM $
+	D[CONST 7] DEST[DEV-ADR] CYLEN[LONG] PUSHJ[TLXRGO] $
+		;SELECT DEVICE 7, START READ.
+	ALU[0] DEST[MA HI-ABS-MA] NORM $
+P2:	PUSHJ[MBTBYTE] C500 $
+	MAPF[2] D[MEM] ROT[34] DEST[Q] PUSHJ[MBTBYTE] C500 $
+	MAPF[2] D[MEM] ROT[24] ALU[DORQ] DEST[Q] PUSHJ[MBTBYTE] C500 $
+	MAPF[2] D[MEM] ROT[14] ALU[DORQ] DEST[Q] PUSHJ[MBTBYTE] C500 $
+	MAPF[2] D[MEM] ROT[4] ALU[DORQ] DEST[Q] PUSHJ[MBTBYTE] C500 $
+	MAPF[2] D[MEM] MASK[4]  ALU[DORQ] DEST[MEMSTO] C500 $
+	D[MA] ALU[D+1] DEST[MA] JUMP[P2] C500 $
+
+CCLR:	ALU[0] DEST[MA] NORM $
+	ALU[0] DEST[MEMSTO] NORM $
+	D[MA] ALU[D+1] DEST[MA] NORM $
+	D[MA] MASK[18.] COND[-OBUS=0] JUMP[. - 2] C600 $
+	POPJ NORM $
+
+MBTBYTE:
+	SPEC[IOB-IN] D[CONST 35] DEST[IOD] LLOAD NORM $
+		;Ask tape for a byte and status thereof
+		;Set loop counter to do timeout
+		;Set IOD hold register for later use to acknowledge
+		;byte.  (The acknowledge bit is the only bit in the
+		;constant 35 that is seen by the hardware.)
+MBTBY1:	MAPF[2] D[IOD] ALU[NOTD] DEST[HOLD] C800 LOOP[MBTBY2] $
+		;Read byte and status.  Byte comes complemented.
+		;Result is put in HOLD to avoid synchronizer problems
+		;Do timeout check and branch if still waiting
+	SPEC[IOB-IN] NORM PUSHJ[MBTCHECK] $
+		;Byte wasn't ready in time.  Go find out why
+	PUSHJ [TLXRGO] $ ;START NEXT RECORD.
+	NORM JUMP[MBTBYTE] $
+		;Go for another record
+;	---
+MBTBY2:
+	SPEC[IOB-IN] D[MEM] ROT[26.] OBUS<0 C550 JUMP[MBTBY1] $
+		;Check for byte ready (this is a two instruction loop)
+		;Start getting byte and status again in case we have
+		;  to loop
+;;;;	MAPF[2] SPEC[IOB-IN] D[IOD] ALU[NOTD] DEST[HOLD] LONG $
+	MAPF[1] SPEC[IOB-OUT] D[MEM] MASK[10] DEST[HOLD] C550 $
+		;MAPF[1] clears byte ready
+		;Raise acknowledge.  Note that IOD was set up at the top
+		;  of the loop to contain acknowledge bit (and some junk
+		;  which the hardware will ignore)
+		;Extract data byte from other status information
+	MAPF[2] SPEC[IOB-OUT] ALU[0] DEST[IOD] C550 POPJ $
+		;Drop acknowledge again.
+		;WARNING: MAPF[2] must be in instruction at return
+		;  address for this to work.
+;	---
+
+
+MBTCHECK:	MAPF[4] D[IOD] DEST[HOLD] $
+	SPEC[IOB-IN] D[MEM] ROT[13.] C550 -OBUS<0 JUMP[MBTCHECK] $
+	  ;WAIT FOR FORMATTER IDLE.
+	D[MEM] ROT[17.] C550 -OBUS<0 JUMP[MBTERR] $
+	  ;CHECK FOR ERROR STATUS.
+	D[MEM] ROT[22.] C550 OBUS<0 POPJ $
+	  ;IF ENDX OF FILE NOT SEEN, RETURN FOR MORE, ELSE DONE.
+	ALU[0] DEST[Q] NORM $ ;CLEAR LIGHTS TO INDICATE NO ERRORS.
+MBTDNX: SPEC[IOB-OUT] ALU[0] DEST[DEV-ADR] $
+		;Setup to display code in lights
+	SPEC[IOB-OUT] MAPF[2] ALU[Q] $	;LOAD LIGHTS FROM Q, CLR SW FF'S
+D1:	MAPF[4] SPEC[IOB-IN] $
+	   ;CHECK START AND CONT SWITCHES.  RD NEXT FILE ON CONT
+	MAPF[4] D[IOD] DEST[AR] $
+	D[AR]  ROT[5] MASK[2] DEST[AR]
+		COND[OBUS=0] JUMP[D1] CYLEN[LONG] $
+		;WAIT FOR A SWITCH.
+	D[AR] MASK[1] COND[-OBUS=0] JUMP[MSTART] C550 $
+	   ;  ... START MAIN MICROCODE ON START SWITCH.
+	SPEC[IOB-OUT] NORM $  ;CLEAR SWITCH FF'S
+	MAPF[4] JUMP[MBOOT] CYLEN[LONG] $
+
+MBTERR:	D[CONST 0] ALU[NOTD] DEST[Q] JUMP[MBTDNX] $
+;	---
+
+	.RELOC		;RETURN TO OLD LOC. CTR.

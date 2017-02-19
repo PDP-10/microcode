@@ -1,0 +1,47 @@
+
+;Initialize switch settings
+.INSERT SWINIT.SLO
+
+; F3 VERSION OF MICROCODE
+
+; SET F2SW = 1 FOR F2,  F2SW = 0 FOR F3
+
+FAST = 0
+
+F2SW = 0
+
+NEWMAP = 0
+
+;;;TIMER = 1
+
+;;;IMP = 1
+
+DLSDEV = 20	; udevice code for TTY scanner
+
+;DLS = 1
+
+;DLSDEB = 1
+
+DLS2 = 1
+
+NTP = 1
+TAPE = 1
+
+;;;VID = 1
+
+;;;VC = 1		; Set to 1 for Versatec
+VCDEV = 14	; udevice code for Versatec
+
+.DEFINE DLIST [] [LIST]	;Define as LIST to enable FOOLIST
+.DEFINE DXLIST [] [XLIST]	;Define as XLIST for FOOLIST stuff
+
+XLIST
+
+.INSERT CFDEF.SLO
+
+LIST
+
+.INSERT CFNEW
+
+LIST-LABELS
+LIST-CORMAP

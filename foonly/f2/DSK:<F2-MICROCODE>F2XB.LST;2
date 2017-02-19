@@ -1,0 +1,68 @@
+
+;  <F2-MICROCODE>F2X.LST;19   Mon 9-Feb-81 4:29PM             Page 100
+
+
+SLOE   Jan ***, 1859 00:00:03  file DSK:CFNEW.SLO  --  of -- F2X
+
+29m0141                               	;XFIXMA XCTBLT XBLTL XPUSH1 XPDLO2 XPOP1 XPOP2 XPOP3
+29m0141 05770 642140000571000440005715	XFIXMA: COND[MA-AC] JUMP[XCTAC] NORM $; J IF ADDRS IS AC
+29m0141 05771 530300020571020010020000	        D[PC] ROT[10] MASK[1] COND[-OBUS=0] POPJ C550 MAPF[2] $; LEAVE IF CALL FM MON
+29m0141 05772 640705614571022170000000	        SET-TEMP-USER $
+29m0141 05773 640320024571000440000000	        D[MA] DEST[MA] POPJ NORM $
+29m0141                               	
+29m0141                               	;;;;;.USE[OTHER]  DWP 9-19-80
+29m0141                               	
+29m0141 05774 640710025171000442000000	XCTBLT: D[MA] SPEC[PC+1] DEST[O_AC AR] NORM $; END ADR IN AC, AC IN AR
+29m0141 05775 640720000571044220000000	XBLTL:  D[AR] ROT[18.] MASK[18.] DEST[MA] SHORT $; GET WORD
+29m0141 05776 530040034571104010005770	        D[IR] ROT[42] MASK[1] COND[-OBUS=0] PUSHJ[XFIXMA] C550 $; FIX IF USER ADDRS
+29m0141 05777 640706000550400440070000	        ACSEL[MA] ALU[AC] DEST[FIXMAC-MAPF-RD] MAPF[BLT-RDA] CYLEN[FIXM] $
+29m0141 06000 640700004171000440000000	        D[MEM] DEST[Q] SHORT $; GET DATA WORD
+29m0141 06001 640720000571000220000000	        D[AR] MASK[18.] DEST[MA] SHORT $; GET DEST ADR
+29m0141 06002 530045634571000010005770	        D[IR] MASK[1] DEST[MAP-EXEC-SR] COND[-OBUS=0] PUSHJ[XFIXMA] C550 $;FIX MA ADDRS
+29m0141 06003 640704200555000440000000	        ALU[Q] DEST[MEMSTO] SHORT $
+29m0141 06004 471140000523000220144344	        D[AR] MASK[18.] ALU[D-AC] MAPF[BLT-WRTB] COND[-OBUS<0] JUMP[BLTA12] C600 $
+29m0141 06005 662145614171001000006007	        D[CONST 1,,1] DEST[Q MAP-EXEC-SR] COND[-MA-AC] JUMP[. + 2] NORM $
+29m0141 06006 640700005570400440000000	        D[MEM] ACSEL[MA] DEST[AC] SHORT $
+29m0141 06007 640150000435000440005775	        D[AR] ALU[D+Q] DEST[AR] JUMP[XBLTL] NORM $; TEST FOR INTERPT HERE ? *****
+29m0141                               	
+29m0141                               	;Special case for PUSH.  Check for AC reference from stack pointer
+29m0141 06010 510140034571000010005702	XPUSH1: D[IR] MASK[1] COND[OBUS=0] JUMP[XCT13] C550 $
+29m0141                               	                ;If not mapping stack references, it's simple
+29m0141 06011 530040034571104012005770	        D[IR] ROT[36. - 2] MASK[1] COND[-OBUS=0] PUSHJ[XFIXMA] SPEC[PC+1] C550$
+29m0141                               	                ;Make sure we're referring to the right place here.
+29m0141                               	                ;Also, we're now executing the instruction (PC+1)
+29m0141 06012 640706000550400440020000	        FIXM1 $ ;Check page faults for effective address part.
+29m0141 06013 640710004571000440000000	        D[MEM] DEST[AR] NORM $
+29m0141                               	                ;Copy away the thing that we want to push
+29m0141 06014 515160015421001000000000	        D[CONST 1,,1] ALU[D+AC] DEST[AC MA] COND[CRY0] JUMP[XPDLO2] C550 $
+29m0141                               	                ;Advance frame pointer and check for overflow
+29m0141 06015 640040000571000440005770	        PUSHJ[XFIXMA] NORM $
+29m0141                               	                ;Decide whether to map destination.
+29m0141 06016 662104200571000440002032	        D[AR] DEST[MEMSTO] MEMST OND[-MA-AC] LBJUMP[MSMAIN] NORM ]$
+29m0141                               	                ;Finish instruction. We're done
+29m0141 06017 640040000571000440005770	XPDLO2: PUSHJ[XFIXMA] NORM $
+29m0141                               	                ;Fixup AC references
+29m0141 06020 640140000571000440000000	        JUMP[PDLO2] NORM $
+29m0141                               	                ;Done.  Take stack overflow trap
+29m0141                               	
+29m0141                               	;Special case for POP.  Check for AC reference from stack pointer
+29m0141 06021 640700034171022442000000	XPOP1:  D[IR] ROT[11] DEST[Q] NORM SPEC[PC+1] $
+29m0141                               	                ;Save bit meaning 'source from user' in format that can
+29m0141                               	                ;be fed easily to EXEC-SR
+29m0141                               	                ;Now we're executing the PUSH (implied by PC+1)
+29m0141 06022 640700224571000440000000	        D[MA] DEST[IR-ADR] NORM $
+29m0141                               	                ;Restore normal effective address 
+29m0141 06023 640720015063001000000000	        ACSEL[AC] D[CONST 1,,1] ALU[AC-D] DEST[MA O_AC] NORM $
+
+;  <F2-MICROCODE>F2X.LST;19   Mon 9-Feb-81 4:29PM             Page 100:1
+
+
+29m0141                               	                ;Update AC and MA for stack reference
+29m0141 06024 530040014635022040005770	        D[CONST 4] ROT[11] ALU[D&Q] COND[-OBUS=0] PUSHJ[XFIXMA] C550 $
+29m0141                               	                ;Fixup stack addressing if user AC
+29m0141 06025 640706000550400440160000	        ACSEL[MA] ALU[AC] DEST[FIXMAC-MAPF-RD] MAPF[PPOP] CYLEN[FIXM] $
+29m0141                               	                ;Check for page faults
+29m0141 06026 640710004571000440000000	        D[MEM] DEST[AR] NORM $
+29m0141                               	                ;Find somewhere safer for thing to push
+29m0141                               	        D[CONST 1] ROT[11] ALU[D&Q] DEST[MAP-EXEC-SR]
+^L

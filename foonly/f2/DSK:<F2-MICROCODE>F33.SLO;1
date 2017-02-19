@@ -1,0 +1,36 @@
+;microcrox for SCI system
+
+;Initialize switch settings
+.INSERT SWINIT.SLO
+
+; F2 VERSION OF MICROCODE
+
+; SET F2SW = 1 FOR F2,  F2SW = 0 FOR F3
+
+F2SW = 0
+
+SLOW1 = 1
+
+XLIST
+
+.INSERT CFDEF.SLO
+
+LIST
+
+KNYTAPE = 1	;Formatting in interrupt mode (i think)
+
+SLOWTAPE = 0
+
+NEWMAP = 1	;SET FOR MACHINES F3-3 AND LATER.
+
+TYMNET = 1
+
+TIMER = 1	;???
+
+CROCK = 1	;for now!!
+
+.INSERT CFMAIN
+
+
+LIST-LABELS
+LIST-CORMAP
