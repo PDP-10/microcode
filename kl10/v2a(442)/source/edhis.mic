@@ -1,0 +1,1215 @@
+.NOBIN
+
+;	THE INFORMATION IN THIS DOCUMENT IS SUBJECT TO CHANGE WITHOUT
+; NOTICE AND SHOULD NOT BE CONSTRUED AS A COMMITMENT BY DIGITAL
+; EQUIPMENT CORPORATION.  DIGITAL EQUIPMENT CORPORATION ASSUMES NO
+; RESPONSIBITY FOR ANY ERRORS THAT MAY APPEAR IN THIS DOCUMENT.
+;	THE SOFTWARE DESCRIBED IN THIS DOCUMENT IS FURNISHED TO THE
+; PURCHASER UNDER A LICENSE FOR USE ON A SINGLE COMPUTER SYSTEM AND
+; CAN BE COPIED (WITH INCLUSION OF DIGITAL'S COPYRIGHT NOTICE) ONLY
+; FOR USE IN SUCH SYSTEM, EXCEPT AS MAY OTHERWISE BE PROVIDED IN WRITING
+; BY DIGITAL.
+;	DIGITAL EQUIPMENT CORPORATION ASSUMES NO RESPONSIBILITY FOR THE
+; USE OR RELIABILITY OF ITS SOFTWARE ON EQUIPMENT THAT IS NOT SUPPLIED
+; BY DIGITAL.
+; COPYRIGHT (C) 1975,1976,1977,1978,1979,1980,1981,1982,1983,1984,1985,1986 DIGITAL EQUIPMENT CORPORATION
+
+.TOC	"REVISION HISTORY"
+
+;	The following collection of people have contributed to the
+;	production and maintenance of this code.  In reverse chronological
+;	order:
+;
+;	QQSV (Dick Wagman) -- beginning with edit 301
+;	Sean Keenan
+;	Don Dossa
+;	Mike Newman
+;	Jud Leonard
+;
+.TITLE	"KL10 Microcode--Copyright (C) Digital Equipment Corp., 29 May 1986"
+.VERSION/MAJOR=2/MINOR=1/EDIT=442/WHO=0
+;REV	WHY
+;
+;442	29 May 86--Clean up the listing a bit in a few miscellaneous places.
+;	Rewrite the SETCA group to use AR_AC0 COMP (looks more obvious than
+;	the previous stuff).  Avoid the write test for HRRZM, using the last
+;	remaining microword to optimize it.  This looks like the last edit
+;	from QQSV.  So long, everybody.  It's been real!
+;441	27 May 86--An afterthought edit.  Move DB2WD in line with CVTDBx
+;	code, and use the space to make JUMPA fetch faster.  This required
+;	moving the TDN dispatch block as well due to DRAM constraints.
+;440	23 May 86--A final omnibus speedup edit.  Add an instruction to allow
+;	TLO/TSO/TLZ/TSZ/TLC/TSC to prefetch.  Special case AOJ, AOJA, SOJ,
+;	SOJA, AOS, and SOS to speed the next instruction fetch in all cases.
+;	Allow JFCL 0, to take a fast path.  Make MOVES, SKIP, HLLS, and HRRS
+;	all use new code that starts the instruction fetch a fair amount
+;	quicker in a few cases.  Juggle the DRAM for all adjacent instructions,
+;	and reconfigure the explicit CRAM addresses where necessary.
+;437	22 May 86--Make MOVSO and MOVST start the I FETCH a few micro-
+;	instructions later when they abort.  A page fault on the I FETCH was
+;	leaving the SR set, and resulted in random garbage ending up in AC0.
+;	Merge GTST and CNV2WD into TST2WD, saving a few words and a little bit
+;	of time.
+;436	17 Apr 86--Back off optimization of JRSTF.  Going to user mode doesn't
+;	set USER in time for the FETCH to occur on the same microinstruction.
+;435	14 Apr 86--Install bit 4 of APRID as PMOVE present option bit.
+;434	7 Apr 86--Edit PMOVE and PMOVEM onto proper op codes.
+;433	4 Apr 86--Edit new JFFO onto proper op code.  Install prototype PMOVE
+;	and PMOVEM, using op codes 100 and 101 for now.
+;432	1 Apr 86--Edit new ADJSP onto proper op code.  Rewrite JFFO to isolate
+;	the bit number within a group more quickly, and install it on op codes
+;	100 and 101 for debugging.
+;431	31 Mar 86--Rewrite ADJSP to start the I FETCH several cycles earlier
+;	by not using PUSH code to set TRAP2.
+;430	20 Mar 86--Start the I FETCH for IMULB, IDIVB, and friends at ST2AC+1
+;	by making it use the DSHIFT code.  Eliminate the EXIT DBL macro as
+;	obsolete.  Move the op code 247 dispatch in with other UUOs in
+;	SKPJMP.  Knock a cycle out of SETMM and SETMB by making them go
+;	directly to IFNOP and IFSTAC.  (This is pretty useless, but
+;	harmless and correct.)  Make a few cosmetic edits.
+;427	18 Mar 86--Install rewritten XBLT in production form, and eliminate
+;	old code.  This makes the BLT file entirely new code.  Make room
+;	for this by rewriting effective address decodes for EXTEND sub
+;	op and for byte pointer in string instructions, making use of
+;	indirection decoder used for single byte instructions.  (Note that
+;	this could impact the PXCTability of EXTEND op codes, but since
+;	only XBLT is supposed to be PXCTed, this should never matter.)  In
+;	the process, fix bug where indirection in byte pointer calculations
+;	was taking interrupt without going to CLEAN first.  Also fix bug in
+;	LDB of an illegal OWG, where an LDB of an OWG with a P&S field of
+;	(for example) 45 was not properly clearing the right half.  This
+;	was introduced when we rewrote SETZ.
+;426	13 Mar 86--Rewrite XBLT.  Implement it on opcodes 100 and 101 for
+;	debugging convenience.
+;425	8 Mar 86--Install optimized BLT.  Eliminate obsolete conditionals
+;	BACK.BLT, BLT.PXCT, and RPW (not related) in the process.
+;424	17 Feb 86--Remove IMULM and IMULB from IMULx optimization, allowing
+;	IMUL and IMULI to begin their I FETCH one microinstruction earlier.
+;	Fix ADJBP of a TWG with byte size zero to correctly load both
+;	halves of the byte pointer (at TWGCPY+1).  Reedit BYTSUB.MIC to
+;	remove a few extraneous words that are no longer needed now that
+;	the single byte instructions have been rewritten.
+;423	13 Feb 86--Install upgraded ASH code. Reedit ASHC to remove code
+;	used only by ASH previously.
+;422	29 Jan 86--Rework speeded IDIVx code onto the proper opcodes, and
+;	delete old IDIVx code.  Reedit a few instructions in that vicinity
+;	to clean up the listing, and remove references to NODIVD label by
+;	making those instructions do SET NO DIVIDE on their own.
+;421	23 Jan 86--Force the SETZ group to use HLLZ code, saving a word.
+;	Make sure DMOVNM loads both halves of AC1 when it starts.
+;	Implement speeded up IDIVx on opcodes 100 and 101 for easy debugging.
+;420	21 Jan 86--Add logic to the integer divide instructions to enable
+;	generating the maximum negative number as a quotient.  This is
+;	in preparation for the IDIVx optimization.
+;417	10 Jan 86--Prevent ROT from (sometimes) clobbering the next
+;	instruction in ARX on a short right rotation (the timing was
+;	close, so it worked most of the time--very bad).  Costs a
+;	microword (sigh).
+;416	7 Dec 85--Rewrite IMULx to do what the old IMULI.OPT should have
+;	done, namely, optimize IMULx of a positive by a positive when
+;	we can be sure that no overflow will occur.  Costs five words,
+;	only two more than the original (broken) IMULI.OPT.  Eliminate
+;	that conditional as obsolete.
+;415	7 Dec 85--Rewrite LSHC and ROTC (at a cost of one word), saving
+;	some time, particularly on right rotates and shifts.
+;414	5 Dec 85--Rewrite the JRST group, not affecting speed very much
+;	but saving many microwords in the process.  Shuffle MOVMI dispatch
+;	to make it identical to HRRZI, saving a bit of time.  Work on UUO
+;	code to save some space.  Crack a couple of words out of JRA,
+;	speeding it up (almost in spite of ourselves).  Force old EIS
+;	effective address dispatch to exit to 3177 instead of 3077, releasing
+;	3077 for other uses.  Knock another word out of POPJ.  Make PF24
+;	go directly to PFPAR, saving a cycle for illegal indirect page
+;	faults (and buying back three words in the process).  Edits 234,
+;	242, and 271 appear ill conceived.  Fix ARL IND and TIME fields
+;	for second counting loop in JFFO, buying a little free speed.
+;	Rework dispatches for FAD/FSB/FMP/FDV, and fix FPLONG conditional,
+;	saving a couple of words and making FADL/FSBL/FMPL/FDVL work when
+;	the conditional is turned on.  Also twiddle definitions of EXP_SIGN
+;	macros to fix a couple of conflicts.  Make FMPRI and FDVRI go to
+;	same spot, as well as FDVx and FMPx, saving a couple of words.
+;413	24 Sept 85--Continue the cleanup/speedup begun in 412.  Rewrite LSH
+;	and ROT, spending some CRAM for speed.  Rework the DMOVxx group to
+;	minimize the memory dead time for DMOVE and DMOVEM, particularly.
+;	Prevent SETA from referencing memory (useless, but harmless and
+;	correct).  Squeeze words out of POP and POPJ.  There are some old
+;	tailings from the DMOVxx code left for use by floating point and
+;	IO code; it would be nice to clean them up.
+;412	12 Sept 85--Freeze work on strings and start doing cleanup and
+;	speedup on other (simpler) instructions.  Move around DRAM and
+;	first words of several instructions (e.g., BLT, EXTEND, XCT,
+;	and several EXTEND sub ops) so that instructions don't jump around
+;	from place to place so much.  Decommit obsolete conditionals WRTST,
+;	XADDR, EPT540, LONG.PC, MODEL.B, KLPAGE, SMP, SHIFT.MUUO, SXCT,
+;	PUSHM, EXTEND, DIAG.INST, and DBL.INT--we haven't supported one
+;	side or the other of these for a long time, in some cases.
+;	Rework all noops and pure skips to use the same code as TRN and
+;	TRNA.  Make TRO, TDO, TRC, TDC, TRZ, and TDZ use the equivalent
+;	boolean code.  Make SETAM and SETAB equivalent to MOVEM.  Save a
+;	cycle in MOVN by having it exit directly without going through MOVE.
+;	All of this involves moving some code around in a few cases.  Clean
+;	up the listings a bit.
+;411	24 July 85--Another try at the SMP fix.  PI cycle 7 must go to
+;	memory for interlock to work, so delete use of the cache on the
+;	PHYS REF.  This may have performance drawbacks for TOPS-20 and
+;	TOPS-10 uniprocessor, so there may have to be two versions of
+;	microcode (again!) to resolve this.
+;410	11 July 85--Force PI functions 3 and 7 to use RPW cycles, so
+;	SMP will work properly.  Save a couple words in the process.
+;407	18 June 85--Change macro ARX_2 to ARX_2+MQ0 and fix related bug
+;	in ADJBP by clearing MQ on entry to instruction.  This prevents
+;	ADJBP from computing the wrong byte capacities for OWGs with
+;	byte sizes of 6 and 18.  Also reverse AC1 and AC2 in DB2WD.
+;	That was causing CVTDBx to reverse the byte pointer halves if
+;	an OWG was used, ruining things entirely.
+;406	11 Mar 85--Define R17 as HARDPFW, and save the hard page fail word
+;	there for TOPS-10, thus protecting it from getting clobbered by a
+;	later soft page fail.
+;405	15 Jan 84--Finish initial installation of rewritten MOVSLJ and
+;	MOVSO code.  Also, remove obsolete conditional code for SXCT and
+;	SHIFT.MUUO, and for the .IFNOT cases of LONG.PC, MODEL.B, XADDR,
+;	DBL.INT, EXTEND, and EPT540.  Remove some code from IBPS (not
+;	needed by DTE support), and an obsolete constraint above PGRST1.
+;	Also put all statistics code into separate assembly.  As currently
+;	implemented, the statistics code won't fit into CRAM without removing
+;	something else.
+;404	12 Oct 84--Fix THAW so that source VMA doesn't get complemented
+;	for OWGs.
+;403	9 Oct 84--Special case the null destination length so that the
+;	byte pointers don't get clobbered when nothing gets done.
+;402	5 Oct 84--Fix byte counting in OWG decode subroutine so that
+;	references to the zeroth byte don't force the pointer forward
+;	one word (shifting P can't easily sign extend here).  Do this by
+;	forcing PLOOP to loop one extra time.
+;401	5 Oct 84--Add code to support OWGs for version 2 MOVSLJ.
+;400	9 Aug 84--Initial first edit number for releasable version 2.0.
+;377	9 Aug 84--All of these are reserved (somewhat paranoically, I think)
+; .	for version 1 as well.  The likelihood of them actually being used
+;360	is vanishingly small!
+;357	9 Aug 84--Add the 136 location constraint (forgotten in 356).
+;356	8 Aug 84--Make the # field of location 136 contain the major and
+;	minor version numbers.  Grab a random instruction with no # field
+;	in use to do this.
+;355	29 May 84--Make BPEA hang on to the original Y field when doing
+;	the EA calculation for an OWL which does not overflow to the next
+;	word.  Untangle copy length calculation, which was confusing
+;	source and destination lengths.  Fix generation of fill count in
+;	loop (a decimal number used where octal was needed).  Make sure
+;	that the fill character gets stored the first time through the fill
+;	loop.  Build the final source count from the proper numbers (not
+;	from a byte pointer!).  Fix the test for storing the final buffer
+;	if no filling was required.  Force the final destination byte pointer
+;	Y field to the proper value by making IDSTMA be the actual first
+;	destination VMA, saving two words in the process.
+;354	25 May 84--Implement recoded version of MOVSLJ.  Temporarily
+;	decommit the G floating instructions in order to make room for it.
+;353	21 May 84--LDB and DPB in version 1 were leaving state register bit
+;	3 set when the byte word was loaded, resulting in the page fault
+;	handler treating it as if it were a string instruction and trying
+;	to back up a byte pointer in AC1 when the reference page faulted.
+;	Cure it by reseting the state register in GBYTE.  (Sure hope this
+;	is the last bug in version 1!)
+;352	4 Apr 84--It turns out that the string instructions had the same
+;	problem as the byte instructions in 351!  Copy AR to ARX one
+;	cycle earlier in both GRSC2 and IDST to fix it.  Also make sure
+;	that all byte pointers default to PC section by initializing VMA
+;	to PC on all calls to both of these routines.  This cleans up edit
+;	300.
+;351	12 Mar 84--When ILDB or IDPB incremented a one word local pointer
+;	in such a way that the low half word changed sign, the section
+;	computation for the byte address would get screwed up if the
+;	index AC had a global address.  Fix this by copying the updated
+;	pointer into ARX, thus forcing EA MOD DISP to look at the proper
+;	bit in ARX18.
+;350	15 Feb 84--Fix indexed indirection byte pointer effective address
+;	calculations to load the indirect word into both AR and ARX.
+;347	20 Jan 84--Rewrite the MVST and CMPS dispatches to test for illegal
+;	bits in the lengths before BRX gets smashed.  UUO was reporting a
+;	bogus op code in these situations.
+;	Turn on BIG.PT by default, since it should work with both old and
+;	new software and hardware.
+;346	18 Jan 84--Fix the .IFNOT variation of BIG.PT to clear the Keep
+;	bit if anybody sets it.  This was introduced in 343.
+;	Add the DDT.BUG conditional.  Under it, rewrite APRID to move
+;	bit 23 to bit 5 if it is set in the serial number.  This is a
+;	piece of garbage which I hope can disappear soon (it seems EDDT
+;	used the serial number to test for a KS-10!).
+;	Fix the time field on the page map word type dispatch (the assembler
+;	default was too high).  Also make the PAGCNT conditional hang on
+;	to the original AR value after it counts the PFH entry (this would
+;	only matter for an AR parity error).  Rename AR and ARX defaults to
+;	MEM for the AR_MEM and ARX_MEM macros, respectively.
+;345	6 Dec 83--Clean up all the pieces and integrate the new byte
+;	instruction implementation into the rest of the microcode.  Also
+;	add the FIN LOAD macro (more mnemonic than FIN XFER, its equivalent)
+;	and include AR/AR on AR_MEM and ARX/ARX on ARX_MEM, as those macros
+;	really don't work unless those fields take their default.  This
+;	version marks the first time that major chunks of code have been
+;	bodily replaced; accordingly, with this edit the major version has
+;	been bumped to 2.
+;344	1 Dec 83--Save CVTBDx fill character address, which was getting lost
+;	if OWGBPs were in use, in a manner similar to that used in CMPSx
+;	(see edit 310).  Also, fix some conditionals for EXPMSK constant
+;	generation, so that OWGBPs will assemble with EXTEXP off.
+;343	18 Nov 83--Install new code for IBP and ADJBP, saving time and
+;	microwords.
+;342	8 Nov 83--Change definition of CLR PT LINE to be consistent with
+;	new paging board (see also 333).  Also, redefine bit 3 of effective
+;	word to reverse keep sense (so unkept only pages are cleared when
+;	bit 3 is set).
+;341	28 Sep 83--Force the ARX to contain the first byte pointer word on
+;	exit from INCRBP so that subsequent EA MOD DISP wil work.  Force
+;	OWGs to explicitly wait for store to complete after increment
+;	(unfortunately there is no implicit MB WAIT in MEM/EA CALC.  Sorry!).
+;340	The OWG/OWL test for the byte instructions had the sense of the
+;	test backwards in several places.  Rework LDBDSP, INCRBP, and
+;	DPBDSP.  This makes it impossible for DPEA to test for a byte
+;	off the top of a word on its return, so it has been desubroutinized.
+;337	15 Sep 83--Start work on a complete rewrite of all byte and character
+;	instructions.  Begin by installing initial versions of LDB, ILDB,
+;	DPB, and IDPB.  All of these are designed to make one word global
+;	byte pointers run faster by loading their shift counts from CRAM
+;	dispatch tables.  Also, reduce time for DISP/SH0-3 to three ticks.
+;	Move CDBLST into FP to allow EXTEXP conditional to be turned off.
+;	Also, shuffle conditional placement to prevent EXTEXP shutoff from
+;	turning off XBLT as well.
+;336	9 Aug 83--Back off 330 for a bit, since TOPS-10 7.02 must be tested
+;	and OWGs in section 0 fail for string instructions (they get converted
+;	to TWGs, which are illegal in section 0).  For now, we will maintain
+;	both sources.
+;335	Force memory to be released for SMP case of DPB if P > 36 causes no
+;	actual data to be stored.  Make an OWG reference to an address >
+;	37,,777777 cause a page fail (GBYTE was stripping the excess bits).
+;334	Fix conflict generated in CLRPT by 333 by creating new subroutine
+;	ARSWAP which is just AR_AR SWAP.  Make several other routines call it,
+;	thus saving a few words.
+;333	Add new conditional BIG.PT.  Under it, add code to implement the "Keep
+;	me" bit for paging as bit 5 of the page table, and to move it to page
+;	map bit 23 during page refill.  Also make DATAO PAG not clear Kept
+;	pages if bit 3 of the word is off.
+;332	Redefine all bank 7 ACs as R0,...,R17, and all bank 6 ACs as P0,...,
+;	P17.  Change all other alias definitions to refer to these.  This
+;	gives us a uniform cross reference for all scratch register references.
+;	Put all macro definitions into alphabetical order, making it easier
+;	to look up a macro definition.  Split the edit history into its own
+;	file.  There are no functional changes from 331.
+;331	Allow XSFM anywhere.  Clean up the code a bit in the process.  There
+;	still remain a number of references to XSFM or XPCW distinctions,
+;	and these could almost certainly be cleaned up further.
+;330	Allow one word global byte pointers in section zero.  This includes
+;	changes in BYTE, EIS, and FP.  Change GBYTE and CNV2WD to return 2;
+;	eliminate GTST as obsolete.  Also shuffle the calls to these routines
+;	to conform to the new calling conventions, and put the OWG test at
+;	the beginning of IBP, ILDB, IDBP, LDB, DPB, and ADJBP.
+;327	Add PAGCNT conditional.  Under it, include control to count entry
+;	into PFH code and DATAO PAG with bit 2 set.
+;326	Change VMA restoration in INC2WD and CNV2WD (see edits 320 and 307)
+;	to use RSTR VMA_MQ in order to keep the global/local sense of the
+;	reference.  This was causing ILDBs of OWGs in shadow memory to
+;	save the incremented byte pointer in the ACs instead of memory.
+;325	Add VMA/LOAD to local indexed EA computation for EXTEND E1 to make
+;	it read the section number from VMA instead of PCS (!) if the index
+;	is section local.
+;324	Force the XADDR conditional to use RPW type references for DPB and
+;	IDPB if the SMP conditional is on, even if one word globals are not
+;	active.
+;323	Add missing constraint near NOT.WR, accidentally broken by 322.
+;322	Generate the A(cessible) bit in a page fail word caused by a read
+;	violation if the page is otherwise accessible and if no CST is present.
+;	This could be fixed for the CST present case as well, but has been
+;	deferred since we are tight on space and no one seems to need it
+;	anyway.
+;321	Prevent statistics microcode from losing traps by forcing NICOND
+;	dispatch 11 to ignore the statistics and take the trap.
+;320	Restore the VMA again in INC2WD (broken by 307), since the state
+;	register bits may have changed in the interim.  This was causing
+;	PXCT to do surprising things (mostly bad).
+;317	Originally, this was an attempt to uncount multiply counted op
+;	codes which resulted from interrupts during long instructions.
+;	That project has been shelved for now.  Instead, the second
+;	NICOND dispatch during op code counting has had its final constraint
+;	fixed.
+;316	Make counting only version compatible with time and counting by making
+;	counting only version use TRX2 and TRX3, removing physical contiguity
+;	requirement.
+;315	Op code counting lives again!  The setup code activated by DATAO PI
+;	was attempting to write the TRX registers with data fresh from memory,
+;	resulting in parity checks when it was used (see edit 73, for example).
+;	Juggle code to overlap next address calculation with parity wait.
+;314	Add CST.WRITE conditional to facilitate assembly of microcode
+;	without the CST writable bit (see edit 303).
+;313	Put TIME/3T on XFERW, as the assembler was getting the wrong
+;	value with both AR_MEM and ARX_MEM macros present.
+;312	Fix definition of BYTE RPW to include a write test.  This was
+;	causing the SMP version of DPB to hang when memory was readable
+;	but not writable.
+;311	Make all IOP function 7 style of references look in the cache.
+;310	Improve the fix in 307 to save the computed E0+1 in FILL during
+;	OWGBP conversion and to restore the VMA from there when done.
+;	Also, make sure that the VMA is initialized to PC for all cases
+;	when doing effective address calculations for two word globals
+;	in string instructions.  307 was not enough to clean up the
+;	CMPSx fill problem, since VMA HELD was never loaded.
+;	Force EXT2WD to prereference AC4 and AC5 so that glitch discovered
+;	for second edit 210 will not be activated.
+;307	Restore VMA from MQ at end of CNV2WD (and remove it from INC2WD,
+;	saving a word in the process).  This was causing CMPSx to load
+;	a random fill word and MOVSLJ to store to a random place when the
+;	source length was zero if one word globals were in use.
+;	Force page fail code to look for ARX as well as AR parity errors
+;	(now possible with BYTE RPW implemented).
+;	Make sign extension of E1 go to right place in EXTEND decoding of
+;	offset instructions (broken in 301).
+;306	Add University of Essex code to statistics (TRACKS) code to make
+;	it work with address break enabled.
+;305	Fix CST write bit logic to not test bit 18 when reading.
+;304	Switch byte read interlock from LDB to DPB (broken in 303).
+;303	Implement bit 18 of a CST entry as a write enable bit in addition
+;	to all the other write enable functions.
+;	Knock one cycle out of byte deposit where the byte is being
+;	deposited into the high order byte of a word.
+;	Implement the SMP conditional for extended addressing by
+;	replicating all the byte effective address calculation code for
+;	DPB.  This is unfortunate, but necessary due to the huge dispatch
+;	table that ends this subroutine.
+;302	Move XFERW out of EIS (which no longer absolutely requires it
+;	in line) into SKPJMP (more in the heart of things).  Also
+;	juggle comment lines and code layout to reduce the listing
+;	size a bit and to force some of the .TOC lines into the table
+;	of contents (even though the code nearby may be suppressed).
+;301	Fix ADJBP so that instructions which occur at the last word on
+;	a page do not cause a page failure of some random type (one cycle
+;	too many between I FETCH and NICOND).
+;	Fix effective address calculation for EXTEND so that only offset
+;	instructions (and not GSNGL, for example) will have E1 sign
+;	smeared.
+;	Implement XJRST.  Also force JSP and JSR to do full 30 bit
+;	effective address calculations.
+;300	ADD LOAD OF VMA FROM PC IN PUTDST TO GET THE SECTION ADDRESS
+;	CORRECT ON THE STRING INSTRUCTIONS.
+;277	Add EA CALC table for SMP configurations of extended addressing
+;	for TOPS-10.  (TOPS-20 paging)
+;276	Force global EA CALC for EXTEND instructions in PUTDST.
+;275	FIX THE ERROR CODE IN STRING COMPARE FOR ILLEGAL BITS IN THE
+;	LENGTH FIELD. WAS CAUSING AR PARITY ERRORS.
+;274	SAVE THE API FUNCTION WORD ON AN IO PAGE FAIL INSTEAD OF THE
+;	PAGE FAIL WORD. THIS TAKES PLACE IN BOTH THE AC BLK 7 AC 2
+;	AND THE MONITOR.
+;273	PUT CONDITIONALS AROUND 4 GFLOAT CONVERSION INSTRUCTIONS.
+;	THEY WILL ACT AS MUUO'S AND MONITOR WILL TAKE CARE OF THEM.
+;272	CONO APR 200000 AT TIMES WAS NOT GENERATING EBUS RESET OF A
+;	SUFFICIENT LENGTH TO CLEAR DTE REGISTERS. ADDED ANOTHER
+;	MICROWORD SO THAT CONO APR IS NOW UP FOR TWO FULL WORDS WHICH
+;	GETS AROUND THE HARDWARE PROBLEM.
+;271	ILLEGAL INDIRECT PAGE FAIL (24) WAS NOT ALLOWING USER TO BE SET.
+;270	WHEN IN SECTIONS > 1, AN UPDATED OWGBP WOULD BE WRITTEN INTO
+;	MEMORY INSTEAD OF THE AC'S.
+;267	CHANGED TESTS FOR OWGBP TO TEST FOR PC SEC0 FIRST. SAVES 33 NS.
+;266	CONDITIONALS ON FOR TOPS-20 DEVELOPMENT.
+;265	REMOVED EDIT 244. SOFTWARE ENGINEERING WILL SUPPLY MONITOR
+;	CODE TO TAKE CARE OF PROBLEM. CODE COSTS TOO MUCH TIME IN
+;	THE INSTRUCTION EXECUTION.
+;264	ADDED CONDITIONALS TO CODE FOR IPA20, OWGBP AND NO CST UPDATE IF
+;	CBR IS ZERO. THIS IS FOR RELEASE 5 OF TOPS-20.
+;263	IBP DID NOT CLEAR FPD ON EXIT.
+;262	ALLOW XBLT TO BE VALID IN SECTION 0.
+;261	FIX CODE AT END OF ADJBP CODE TO CLEAR STATE REG. IF ILDB
+;	WITH 2 WD GLOBAL POINTER POINTING TO ADDRESS NOT IN CORE
+;	CLEAN DISPATCHES TO WRONG CODE BECAUSE SR LEFT OVER FROM
+;	ADJBP.
+;260	FIX FM PARITY ERRORS AT MVF1: ADDED NULL CALL TO RET2:
+;	AT MVST: TO TAKE CARE OF EXTRA TICK FOR PARITY.
+;257	MAKE SURE THAT THE UPDATED ONE WORD GLOBAL BYTE POINTER IS
+;	WRITTEN BACK INTO THE CORRECT CONTEXT.
+;256	MAKE ANOTHER ATTEMPT TO FIX PXCT OF ONE WORD GLOBAL BYTE POINTERS.
+;	THE GIBP CODE GETS THE SAME CHANGES AS EDIT 255.
+;255	MAKE ONE WORD GLOBAL BYTE POINTERS WORK WITH PXCT. THE STATE
+;	REGISTER BITS ON MCL4 (NOT TO BE CONFUSED WITH CON3), WERE NOT
+;	BEING SET PROPERLY TO ALLOW PREVIOUS ENA AND USER ENA TO BE SET.
+;	GUARANTEE THAT THESE SR BITS ARE SET PRIOR TO THE LOAD OF THE VMA.
+;254	FIX PROBLEM WITH OWGBP WHERE FPD DOES NOT EFFECT
+;	INC OF POINTER AFTER PAGE FAIL
+;253	FIXED ADDRESSING FOR SH DISP AT GADJL0:
+;252	MOVE STRING INSTRUCTIONS DO NOT GET THE CORRECT DATA ON
+;	LOCAL POINTERS IN NON 0 SECTIONS
+;251	ADD CODE FOR ONE WORD GLOBAL BYTE POINTERS.
+;	TOOK OUT EDITS 243 AND 250 TO GET ENOUGH SPACE IN CRAM
+;	FOR THIS EDIT. OWGBP WITH EXTEND INSTRUCTIONS WILL NOT
+;	RETURN A OWGBP. THEY WILL RETURN A TWO WORD GLOBAL BP.
+;250	ALLOW SMP SWITCH TO EFFECT TOPS-20 MODEL B TO DO RPW IN
+;	BYTE INSTRUCTIONS.
+;247	DO NOT DO A CST UPDATE OR AGE UPDATE IF THE CBR IS ZERO.
+;246	EXTEND OP CODE DECODE FOR MODEL A WAS ACCEPTING MODEL B
+;	OP CODES (20-31). ADDED CONDITIONALS TO CODE TO FIX.
+;245	FIX 2 WORD GLOBAL BYTE POINTER BUG WITH IBP INSTRUCTION
+;	WITH EXTENDED ADDRESSING OUT OF SECTION 0
+;244	FIX MOVST EXTEND INST. SO THAT ILLEGAL (> 36) S FIELD
+;	DOES NOT CAUSE STOP CODE TO CRASH SYSTEM FOR TOPS-10 MODEL B.
+;243	WRTIME TRIED TO DO MEM WRITE EVEN THOUGH THE INSTRUCTION
+;	DOES NOT DO ANYTHING TO MEMORY. CAUSED PROBLEMS IF THE MEMORY
+;	LOCATION WAS NOT WRITABLE.
+;242	FIX CODE FROM EDIT 234 TO GET PF CODE OF 24.
+;241	FIX DFAD AND DFMP FOR ROUNDING OCCURS PROPERLY. ADDED STICKY
+;	BIT FOR LEAST SIGNIFICANT BITS OF THE RESULT.
+;240	FIX GFLT INSTRUCTIONS GFIX AND DGFIX SO THEY WILL TRUNCATE NEGATIVE
+;	NUMBERS IN THE CORRECT DIRECTION. THE MQ MUST BE ZERO BEFORE
+;	THE ARX_2 MACRO IS INVOKED OR THE ARX MIGHT GET A 3 FROM MQ00.
+;237	ADD OPTION BIT FOR PV CPU IN THE APRID WORD AS IT IS DOCUMENTED
+;	IN ALL OF THE HARDWARE DOCUMENTATION. SET THE BIT ACCORDING
+;	TO THE MODEL.B OPTION SWITCH. IT WILL BE MAGIC NUMBER BIT 3.
+;236	ALLOW THE INTEGER DIVIDE OF THE LARGEST NEGATIVE NUMBER BY
+;	PLUS ONE TO SUCCEED. THIS USED TO BE A DOCUMENTED RESTRICTION
+;	THAT THIS OPERATION WOULD CAUSE AN OVERFLOW AND NO DIVIDE.
+;235	FIX JRA SO IT DOESN'T FALL INTO SECTION ZERO FROM A NON-ZERO
+;	SECTION EVERY TIME BY WRITING THE PC SECTION INTO THE VMAX.
+;234	BUILD A PAGE FAIL CODE OF 24 WHEN AN ILLEGAL INDIRECT WORD
+;	IS FOUND DURING THE EFFECTIVE ADDRESS CALCULATION IN 
+;	A NON-ZERO SECTION. THE PAGE FAIL CODE WAS PREVIOUSLY NOT
+;	BEING REPORTED.
+;233	SAVE THE IOP FUNCTION WORD THAT APPEARS ON THE EBUS WHEN AN
+;	EXTERNAL DEVICE INTERRUPTS THE CPU. SAVE THIS INFORMATION
+;	ON EVERY INTERRUPT IN AC BLOCK 7, AC 3. THE CONTENTS
+;	OF THIS AC WILL BE PRESERVED UNTIL THE NEXT INTERRUPT.
+;	OPERATING SYSTEMS SHOULD SAVE THIS INFORMATION AS SOON AS POSSIBLE
+;	IF ITS CONTENTS ARE TO BE RELIABLE AND MEANINGFUL.
+;232	ADDS 13 NEW INSRUCTIONS FOR SUPPORTING FORTRAN78 ON MODEL
+;	B MACHINES. THESE INSTRUCTIONS ARE:
+;	       OPCODE     SYMBOL
+;	       ======     ======
+;		102	GFAD AC,E
+;		103	GFSB AC,E
+;		106	GFMP AC,E
+;		107	GFDV AC,E
+;		EXTEND INSTRUCTIONS    EXTEND OPCODE
+;		====== ============    ====== ======
+;		EXTEND AC,[GSNGL  0,E]	    21
+;		EXTEND AC,[GDBLE  0,E]	    22
+;		EXTEND AC,[DGFIX  0,E]	    23
+;		EXTEND AC,[GFIX   0,E]	    24
+;		EXTEND AC,[DGFIXR 0,E]	    25
+;		EXTEND AC,[GFIXR  0,E]	    26
+;		EXTEND AC,[DGFLTR 0,E]	    27
+;		EXTEND AC,[GFLTR  0,E]	    30
+;		EXTEND AC,[GFSC   0,E]	    31
+;231	FIX IN PROBLEM IN EDIT 215 TO XDPB THAT PREVENTED THE KL
+;	FROM HANDLING INTERRUPTS WHILE EVALUTAING AN INDEXED INDIRECT CHAIN.
+;	AN "=0" WAS MISSING BY BYTEIP.
+;230	TO PRESERVE COMPATABILITY WITH THE KS10 AND BECAUSE OF SPACE
+;	LIMITATIONS IN TOPS20 MODEL A, THE SPECIFICATION FOR THE
+;	CVTDBX INSTRUCTIONS HAVE BEEN CHANGED TO ELIMINATE THE NEED
+;	FOR AN OVERFLOW TEST DURING THE CONVERSION. THIS CHANGE
+;	EFFECTIVELY REMOVES EDIT 221.
+;227	DELETE EDIT 222 AND RETURN THE CVTBDX INSTRUCTIONS TO THEIR
+;	OLD, BROKEN FUNCTIONALITY SINCE ANY ATTEMPT TO PREVENT THE
+;	FLAGS FROM BEING CHANGED PREMATURELY HAS TO CONTEND WITH
+;	INTERRUPTABILITY PROBLEMS. THE HARDWARE REFERENCE MANUAL
+;	HAS A FOOTNOTE ABOUT THE FLAG PROBLEM SO THE CURRENT FUNCTIONALITY
+;	IS DOCUMENTED FOR USERS.
+;226	PREVENT AR PARITY ERRORS WHEN INCREMENTING BYTE POINTERS IN THE ACS.
+;225	THE CODE TO SUPPORT THE MX20 VIA THE SBUS DIAG LOOP MECHANISM
+;	DOES NOT TIME OUT CORRECTLY BECAUSE THE LOOP COUNTER IS BEING
+;	REINITIALIZED EVERY TIME THROUGH THE LOOP. FIX THIS PROBLEM
+;	EVEN THOUGH THE CODE IS NOT ASSEMBLED IN CURRENT RELEASES.
+;224	FIX BUG IN EDIT 223 THAT CAUSED THE WRONG PAGE FAIL
+;	WORD TO BE WRITTEN WHEN AN I/O PAGE FAIL OCCURS.
+;223	WHEN A MEMORY PARITY ERROR OCCURRS AT PI LEVEL, AS EVIDENCED
+;	BY AN AR DATA PARITY ERROR, THE DTE MAY BE WAITING FOR A
+;	RESPONSE. IF IT IS, A DEX FAILURE WILL OCCUR UNLESS WE CAUSE
+;	DEMAND TO WIGGLE.  WE CAN DO THIS BY FORCING THE DATA  IN THE
+;	AR OVER THE EBUS.
+;222	CVTBDX IS NOT SUPPOSED TO CHANGE THE CONTENTS OF THE ACS
+;	OR MEMORY IF THE CONVERTED NUMBER WILL NOT FIT INTO THE
+;	DESTINATION FIELD. IT WAS, HOWEVER, CHANGING THE FLAGS
+;	BEFORE IT KNEW IF THE NUMBER WOULD FIT.
+;221	THE CVTDBX WERE FAILING TO SET OV AND TRAP1 WHEN THE
+;	CONVERTED DECIMAL NUMBER WOULD NOT FIT INTO A
+;	DOUBLE WORD.
+;220	THE TRANSLATE INSTRUCTIONS WERE USING A 15 BIT WIDE
+;	FIELD FOR THE REPLACEMENT BYTE IN THE TRANSLATE TABLE
+;	WHILE THE SPECIFICATION STATED THAT THE TRANSLATE
+;	INSTRUCTIONS WOULD USE ONLY 12 BITS.
+;217	PREVENT CRAM PARITY ERRORS CAUSED BY DISPATCHING TO LOCATION
+;	3042 WHEN INDEXING IS SPECIFIED IN THE EFFECTIVE ADDDRESS
+;	CALCULATION OF E1 WHEN THE EXTEDED OPCODE IS ZERO (ILLEGAL).
+;	THE FIX IS TO PUT A JUMP TO UUO AT 3042.
+;216	CHANGE THE DEFAULT VALUE FOR THE SMP SWITCH TO BE ONE. THIS
+;	CAUSES THE MICROCODE TO INCLUDE SMP SUPPORT BY DEFAULT.
+;215	CHANGES DPB INSTRUCTION TO R-P-W CYCLE ON DATA FETCH PORTION OF
+;	INSTRUCTION TO SOLVE AN INTERACTION PROBLEM IN AN SMP OPERATING
+;	SYSTEM.  THIS CHANGE ONLY APPLIES TO MICROCODES FOR TOPS-10 
+;	AND TOPS-20, MODEL A.
+;214	ADDED CHANGES FOR XADR, RELEASE 4 AS FOLLOWS.
+;	STORE PREVIOUS CONTEXT SECTION (PCS) IN FLAGS WORD (BITS 31-35)
+;	IF EXEC MODE AND XSFM OR XPCW INSTRUCTION,MUUO OR PAGE FAIL.
+;	RESTORE PCS FROM FLAGS WORDS (BITS 31-35) WHEN XJRSTF OR XJEN
+;	IS EXECUTED IN EXEC MODE AND THE NEW PC IS ALSO IN EXEC MODE.
+;213	SET/FPLONG=0 PARAMETER ADDED TO TOPS-10 MICROCODE FOR KL MODEL 
+;	A AND MODEL B.
+;212	CHANGE THE CODE AT LDIND: TO TEST FOR USER MODE IF USER MODE
+;	TURN OFF SPECIAL CYCLE THAT MAY STILL BE ON. THE MICROCODE WILL DEPEND
+;	ON KERNAL PROGRAMS TO NOT GET IN PAGE POINTER
+;	LOOPS. INSTRUCTIONS EXECUTED FROM THE CONSOLE WILL NOT WORK.
+;	PI INSTRUCTIONS GET A RESTRICTION TO NOT GET INDIRECT PAGE POINTERS
+;	IN THEIR PAGING CHAIN AS DO EXAMINES AND DEPOSITS AND BYTE TRANSFERS.
+;211	CHANGE THE TEST FOR INDIRECT POINTERS TO NOT HAPPEN ON SECTION
+;	POINTERS AND JUST ON INDIRECT PAGE POINTERS. AT LDIND:+1 AND LDIMM:+2
+;210	MAKE ALL AC+# MICROINSTRUCTIONS HAVE THE # FIELD THE SAME IN THE
+;	PREVIOUS MICROINSTRUCTION TO SOLVE A TIMONG GLITCH IN THE HARDWARE.
+;	MAKE EXCHANG MARK AND DESTINATION POINTERS UUO IF THEY DO NOT
+;	HAVE BYTE POINTERS OF EQUAL LENGTH. CHANGES PERVASIVE IN EIS ALSO IN PF
+;	RECOVERY IN IO.
+;	MAKE THE LOAD OF AN INDIRECT POINTER CLEAR PI CYCLE IF SET.
+;	THIS MEANS THAT THE MONITOR CANNOT USE KERNAL CYCLE, INSTR ABORT
+;	INH PC+1 OR HALT IN A PI CYCLE IF AN INDIRECT POINTER CAN
+;	BE A PART OF THE REFILL. ALSO NOTE THE POSSIBILITY OF GETTING AN
+;	INTERUPT BEFOR THE PI INSTRUCTION COMPLETES. (NEVER CONTINUES PI
+;	INSTRUCTION) CHANGES AT LDIND.
+;207	CHANGE SBUS DIAG CODE FOR MOS PUT IT IN MOS CONDITIONAL /MOS=1
+;	IF ON SBUS DIAG TRIES AT LEAST 8 TIMES TO GET A RESPONSE
+;	OTHER THAN -1 IF IT GOT -1 ALL THOSE TIMES THE MICROCODE
+;	GIVES UP AND RETURNS 0
+;206	FINAL FIXES TO PUSHM AND POPM
+;205	FIX BUG IN INDEX CALCULATION OF E1 FOR EXTENDED ADDRESSING.
+;	INDEXING REQUIRED THAT AN AREAD BE PERFORMED IN ORDER TO LOAD
+;	THE AR WITH A CORRECT FINAL RESULT. THE EFFECTIVE ADDRESS CALCULATION
+;	AROUND EXTLA: GOT A NEW MACRO ADDED FOR INDEXING THAT DOES THE AREAD.
+;	ABSOLUTE LOCATIONS IN THE RANGE 3040 GET USED AS TARGETS FOR THIS
+;	AREAD THEN THE CODE REJOINS THE OLD CODE AT EXT2: 
+;	THE AREAD WAS NECESSARY FOR THE HARDWARE MAGIC TO LOAD PARTS OF THE
+;	AR DEPENDING ON THE INDEX REGISTER AND OTHER EXTENDED ADRESSING
+;	PARAMETERS.
+;204	ADD AUTOMATIC VERSION NUMBER
+;	ADD CODE TO DO SBUS DIAG TESTING REQUIRED BY MOS
+;203	PUT THE BLKO PAG, CHANGE IN 201 IN A KLPAGING CONDITIONAL
+;	KIPAGING GETS TANGLED IN AR PARITY ERRORS AND IN GENERAL DOES
+;	THE WRONG THINGS
+;202	TURN OFF IMULI OPTIMIZATION IT GETS THE SIGN BIT AND THE OVERFLOW
+;	FOULED UP (TURNED OFF FOR MODEL B ONLY WAS OFF IN MODEL A)
+;201	CHANGE BLKO PAG, TO INVALIDATE ONLY ONE ENTRY BY CLEARING IT
+;	CHANGES AT PAGBO PAGBO+1 AND CLRPT+3 CLRPT+3 GETS SETUP THAT USED
+;	TO BE AT PAGBO+1, PAGBO+1 NOW CLEARS ENTRY AND QUITS
+;	KLPAGE ERROR CHECK FOR TOPS 10 MODEL A TO CAUSE ERROR
+;	IF SWITCH SETTINGS ARE IN CONFLICT DIDDLED
+;200	CHANGE ALL EXEC REF TRACKS FEATURES BACK TO PHYS REF
+;	ON SUSPICION THAT PAGE FAULTS ARE NOT HANDLED PROPERLY
+;	MAKE NON TRACKS INSTR STAT FEATURES GET FOUR PHYSICAL
+;	PAGE NUMBERS FROM FIRST FOUR LOCATIONS IN THE PAGE PRESENTED
+;	IN THE DATAO PI, THE CODE ALSO USES THAT PAGE FIRST
+;	LOCATION TO PUT THE INITIAL JUNK INTO ON STARTUP
+;177	FIX SOME BUGS IN OPCODE TIMING CODE AT OPTM0: AND BEYOND
+;176	ADD TO THE TIME COUNTING CODE CODE THAT COUNTS FREQUENCY
+;	OF EACH OPCODE IN PAGE+2 AND PAGE+3
+;175	FIX TIME COUNTING CODE TO ACOUNT FOR EACH OPCODE IN THE
+;	USER OR EXEC MODE IT WAS SEEN IN, EDGE COUNTS WERE DONE IN
+;	WRONG MODE CHANGES UNDER OP.TIME CONDITONALS (PERVASIVE)
+;174	CHANGE TRACKS AND TIME COUNTING TO USE EXEC VIRTUAL SPACE
+;	INSTEAD OF PHYSICAL SPACE
+;173	SEPERATE OUT THE DISMISS AT 626: BECAUSE OF SUSPECTED BUG
+;172	THE FACT THAT XJEN DISMISSES BEFORE READING NEW PC WORDS CAUSES
+;	A PROBLEM FOR TOPS 20. REHASH THE CODE AT 600: TO 637: TO MAKE
+;	XJEN READ THE TWO WORDS FIRST AND THEN DISMISS.
+;171	CAUSE IO PAGE FAIL FIX IN 170 TO SHIFT AT END GETTING CORRECT
+;	PAGE FAIL WORD CHANGE AT IOPGF:
+;170	MAKE CLRFPD: GO DIRECT TO FINI: INSTEAD OF THROUGH NOP: THIS WAS
+;	COSTING 2 TICS IN BYTE INSTRUCTIONS
+;	CHANGE IO PAGE FAIL TO SAVE A VIRTUAL ADDRESS IN THE AC BLOCK 7
+;	LOCATION 2 INSTEAD OF THE DATA THAT WAS ON THE EBUS CHANGES AT
+;	PGF4:+1 AND IOPGF:
+;167	CHANGE DEFAULT ON ADB MIXER SELECTS. NO DEFAULT NOW SUBFIELD U23
+;	IS DEFAULTED TO 1 TO AVOID SELECTING FM AND NEEDING TO WAIT FOR PARITY.
+;	THIS LEAVES THE OTHER BIT OF THE FIELD AVAILABLE FOR PARITY
+;	EPT MOVED TO 540 USING SWITCH IN KLX,KLL (KLA,KLB NOW DEFUNCT)
+;166	CHANGE FIELD DEFINITION FORMAT CHANGE THE WAY THE OPTIONS FIELD
+;	GETS ITS VALUES ASSIGNED. EACH BIT GETS A FIELD DEFINITION.
+;165	BUG IN 161 TO 164 WAS MISSING AC0 AT POP2: PARITY BIT WAS PUT THERE
+;	IN THE NEWER MICROCODES
+;	INSTALL MANY THINGS TO MAKE WORD STRING MOVES WORK START AT
+;	MOVWD1 AND UNTILL BMVWD1 ALSO ASSORTED MACROS ARE ADDED
+;	THESE ARE INSTALLED IN A SEPERATED EIS FILE (WDEIS) FOR THE MOST PART
+;	THERE ARE SOME NEW MACROS AND THE CLEAN+17 LOCATION IS USED FOR
+;	THIS CASE UNDER MODEL B CONDITIONAL INTERRUPTS DO NOT WORK YET
+;	IN THIS CODE BUT ALL DATA TRANSFERS ARE CORRECT. INTERRUPTS ARE
+;	TAKEN SO SUSPECT THE PROBLEM IS IN THE CLEANUP CODE.
+;164	LEAVE IN ONLY MAP FIX
+;163	TAKE OUT MAP FIX LEAVING XHLLI IN AND JRSTF IN
+;162	PUT XHLLI BACK IN TAKE OUT JRSTF ONLY IN SEC 0 CODE
+;161	XHLLI OUT TO DEBUG ADD RSTF0: TO MAKE TEST FOR JRSTF IN NON
+;	0 SECTIONS TEST IN ALL CASES
+;157	INSTALL XHLLI MAKE JRSTF UUO ON NON ZERO SECTIONS
+;	ALSO MAKE MAP DOING A REFILL PAGE FAIL RIGHT THIS MEANS THAT AFTER
+;	CLEAN IT CANNOT DO ANYTHING INTERESTING IF AN INTERRUPT IS PENDING
+;	CHANGES AT MAP2:
+;156	REINSERT A SKP INTRPT IN THE PAGE FAULT HANDLER TO HAVE INDIRECT
+;	POINTER CHAINS INTERRUPTABLE. AT PGRF6:+6
+;155	ABORTIVE MAP FIX FIX REMOVED PROBLEM MUST BE FIXED IN HARDWARE.
+;154	ADD TESTS FOR AC'S IN PHYSICAL REFERENCES FOR EXAMINES AND DEPOSITS
+;	PHYS REFS GO TO MEMORY, NOT AC'S AFTER PROBLEM SHEET 1675
+;	CHANGES AT PILD+3 PIFET+2 PSTOR PHYS1 PHYS2 PHYS3
+;	ADD CHANGES IN TRACKS TO MAKE MODEL A WORK AT TRK2+2 AND +3
+;153	ADD SPECIAL CODE FOR PXCT OF BLT THIS HOPEFULLY CAN GO AWAY
+;	WHEN THE EXTENDED ADDRESSING MONITOR DOES NOT USE PXCT ANYMORE
+;	IT IS UNDER .IF/BLT.PXCT CONDITIONAL AND COSTS 12 WORDS
+;152	CHANGE WHAT BLT DOES TO MATCH THE SPEC SR_BLT(XXX) IS CHANGED TO
+;	NOT FORCE GLOBAL ADDRESSING THE LOAD VMA(EA)_ARX+BR AND
+;	STORE VMA(EA)_ARX MACROS ARE ADDED TO FORCE THE GLOBAL/LOCAL PARAMETERS
+;	TO BE THE SAME AS THOSE OF THE EFFECTIVE ADDRESS
+;151	PUT THE EPT AND UPT AT 540 UNDER SWITCH CONTROL .IF/EPT540
+;150	VERSION NUMBER BACKED UP TO PRESERVE SPACE IN VERSION NUMBER FIELD
+;304	EXTEND 0 WOULD GET A JUMP TO AN UNUSED MICROLOCATION IN MODEL.B
+;	ONLY THIS WAS BECAUSE LOCATION 2002: IN MODEL.A SHOULD BE AT 3002:
+;	IN MODEL.B 3002: AND 3003: PUT IN WHERE 2002: AND 2003: ARE UNDER
+;	CONDITIONALS.
+;303	CHANGE THE NUMBER FIELD OF THE SR_BLT(XXX) MACROS TO GIVE THE
+;	BIT 0 OFF ALL THE TIME. THIS GIVES BLT MORE THE FORM OF THE OTHER
+;	EXTENDED ADDRESSING STUFF IN HOW IT REFERS TO THE SHADOW AC'S.
+;	IT IS STILL BELIEVED TO BE BROKEN BUT IS BETTER THAN IT WAS.
+;302	ADD LONGER ADDRESS CONSTRAINTS FOR THE NEW MICROASSEMBLER. EVERY
+;	LOCATION THAT THE DISPATCH RAM CAN JUMP TO IS EFFECTED. THE
+;	CONSTRAINTS THATUSED TO LOOK LIKE =00**** MUST NOW LOOK LIKE
+;	=0****00**** THIS IS BECAUSE THE MODEL B MACHINE CAN AND DID
+;	REALLY SET THAT BIT. THE CHANGE MAKES THE MICROCODE INCOMPATIBLE
+;	WITH THE OLD ASSEMBLER.
+;301	HALT IS CLEARING THE RUN FLOP WITH HARDWARE MUST CHECK FOR
+;	KERNAL MODE BEFOR THE HALT MACRO SO USER IOT MODE WILL
+;	NOT BE ABLE TO HALT. THIS TAKES ONE MICROWORD AT 1017:
+;	THE SENSE OF THE SKIP IS REVERSED AGAIN SO 1016: IS BACK TO
+;	BEING THE UUO AND CHALT: IS NOW A SEPERATE WORD AFTER 1017:.
+;300	REPLACE HALT CODE AGAIN BUT THIS TIME GET THE SENSE OF THE
+;	SKIP RIGHT BY SWAPPING THE CONTENTS OF LOCATIONS 1016: AND 1017:
+;	PUT THE 1: ADDRESS CONSTRAINT ON CONT:.
+;277	PUT HALT BACK THE WAY IT WAS SKP USER HAS THE INVERSE SKIP SENSE
+;	AND HENCE DOES THE WRONG THING. HALT TO BE FIXED LATER.
+;276	YET ANOTHER TRY AT THE BLKO PROBLEM BLK1: SHOULD HAVE HAD A
+;	J/BLK2.
+;275	THE LONG PC CHANGES HAD XSFM1: BEFOR THE ADDRESS CONSTRAINT THUS
+;	GIVEING THE WRONG ADDRESS. THE =0 IS PUT BEFOR THE LABEL.
+;274	FIX THE DIAG.INST CONDITIONALS TO BEHAVE PROPERLY WITH THE
+;	CONSTRAINTS OF DRAM LOCATIONS MAP DIED BECAUSE IT NEVER WAS
+;	REACHED OUT OF A DISPATCH.
+;273	INSERT THE DIAG.INST FEATURE FOR THE DIAGNOSTICS PEOPLE.
+;	CHANGES AT DCODE 104:, 106: AND AT XCT: SHOULD NOT EFFECT OTHER
+;	ASSEMBLIES.
+;272	THE FIX TO THE GARBAGE IN THE LEFT HALF OF VMA IN 265 FORGOT TO
+;	LOAD THE VMA IN BLK3:+1 PUT THAT IN. ALSO ON JUD'S RECOMENDATION
+;	PUT A COPY OF THE NOP MICROINSTRUCTION AFTER CLRFPD: TO MAKE
+;	ENOUGH TIME IN THE SKIP CASE. IT SEEMED TO WORK WITHOUT THIS
+;	AND IF SPACE GETS TIGHT IT SOULD BE REMOVED.
+;271	FIX IN 267 PGF4:+4 DOES NOT WORK, CANNOT PUT VMA_# THERE. POSSIBLY BECAUSE
+;	VMA_# CONFLICTS IN SOME ESOTERIC WAY WITH STORE? THAT CHANGE
+;	IS TAKEN OUT AND AT PGF1 THE VMA IS GIVEN 500 OR 501. THIS IS SLIGHTLY
+;	LESS DESIREABLE AND FURTHER EFFORT COULD BE SPENT IN THE UCODE TO
+;	MAKE PAGE FAILS LESS UNWEILDY FOR THE SOFTWARE ROUTINE THAT CONVERTS
+;	THEM TO MODEL B FORM.
+;270	CHANGE HALT TO CHECK FOR USER MODE INSTEAD OF IO LEGAL. A JOB
+;	IN USER IOT SHOULD NOT BE ABLE TO HALT THE MACHINE.
+;267	ADD NEW CONDITIONAL SHIFT.MUUO TO PROVIDE THE SHIFTED DOWN MUUO
+;	DATA BLOCKS MORE SIMILAR TO THE XADDR TYPES. CONDITIONAL IS USED
+;	AT 1003: AND PGF4:+4 TO PROVIDE A DIFFERENT STARTING ADDRESS.
+;266	FIX PILD+3 TO LOAD THE VMA AT THE SAME TIME THUS ENABLING
+;	THE MODEL HACK FIX TO LOAD THE LONG VMA.
+;265	HAIR UP THE ALREADY HAIRY BLKXX CODE TO CLOBBER THE LEFT HALF OF AR
+;	BEFOR USING IT AS AN ADDRESS. CLOBBERED ARL AT BLK2 AND LOADED
+;	VMA AT BLK3.
+;264	ADD J/CLRFPD AT BFIN TO MAKE IT THE SAME AS IT WAS. BFIN GOT
+;	MOVED TO A DIFFERENT PLACE IN THE LAST EDIT AND THIS J FIELD
+;	WAS NOT FIXED.
+;263	ADD THE MIT FIXES. IOTEND AND THE BLK1 TO BLK4 GROUP ARE CHANGED
+;	EXTENSIVELY. CLRFPD IS PUT JUST BEFORE FINI CONSTRAINT ON IOFET
+;	IS CHANGED.
+;	ADD THE LONG PC FORMAT UNDER A NEW CONDITIONAL LONG.PC THE
+;	CONDITIONAL IS TURNED ON BY XADDR. CONDITIONALS ARE ADDED TO THE
+;	LONG PC CODE TO MAKE IT SMALLER WHEN ONLY SECTION 0 IS POSSIBLE.
+;	ADD COMMENTS TO THE MICROCODE OPTIONS FIELD.
+;	RESTORE SXCT CODE FROM VERSION 131. TO BE USED ONLY IN MODEL A
+;	NON KLPAGING CODE.
+;262	PUT WORD AT INDR1+1 UNDER SXCT CONDITIONAL SO WHEN SXCT IS OFF WE
+;	GET AN ADDITIONAL SAVINGS OF ONE WORD.
+;261	ADD PHYS REFS AT PGRF6+4 AND PIDISP+4 TO MAKE MODEL.A LOAD A LONG
+;	VMA. PART OF THIS CODE IS NOT UNDER CONDITIONAL BECAUSE IT SHOULD NOT MATTER
+;	TO A MODEL.B MACHINE. PIDISP+4 ALSO GETS THE LOAD OF THE SAME DATA
+;	REPEATED SO THE PHYS REF HAS SOMETHING TO WORK ON.
+;	FLUSH THE NOW USELESS CODE AT CHALT TO GENERATE THE LD AR.PHYS
+;	CONSTANTS.
+;	CURRENTLY THERE IS SORT OF A BUG IN THAT THE SBR AND THE CBR
+;	CAN NOT BE ABOVE 256K IN A MODEL.A MACHINE. THIS DOES NOT BOTHER
+;	THE CURRENT MONITORS AT ALL IN THAT THESE TABLES ARE IN VERY LOW CORE.
+;	IF THAT CHANGES THE LOCATIONS SECIMM+3 SECIMM+7, LDIND, PGRF5, LDSHR
+;	AND LDPT1+1 MUST ALL GET FIXED UP. THE GENERAL FIX IS TO GET A PHYS REF
+;	IN THE MICROINSTRUCTION THAT LOADS THE VMA. THIS CAN BE DONE BY
+;	POSTPONING THE LOAD OF THE VMA ONE MICROINSTRUCTION IN ALL OF THESE
+;	PLACES, BUT, SINCE THAT CAUSES A PERFORMANCE DEGRADATION IT WAS NOT
+;	DONE.
+;260	DIVERGANT CHANGES TO MAKE KLPAGING PHYS REFS THE OLD WAY
+;	CAUSE ALL CASES OF VMA_XXX+LD AR.PHYS TO GO BACK TO THE 
+;	OLD PHYS REF WAY
+;257	IN MODEL B MACHINES AT LDPT+1 THE VMA IS GETTING GARBAGE IN THE
+;	LEFT HALF BECAUSE IT ADDED IN JUNK THAT WAS IN AR LEFT. FIX IS TO
+;	CLEAR ARL AFTER LDPT AND TO DO THE SHUFFLE PERFORMED THERE ONE
+;	MICROINSTRUCTION LATER.
+;******	A HACK FIX IS USED HERE THAT TAKES TWO WORDS. THIS WAS DONE BECAUSE
+;	OF EXTREEM TIME PRESSURE TO DEBUG >256K MODEL B. THERE OUGHT TO BE
+;	A WAY TO REDUCE THIS FIX TO ONLY ONE WORD IN SPACE AND TIME, OR
+;	EVEN LESS.
+;256	EDIT JUMPED TO RANDOMNESS WITH AN EXTRA RETURN. THIS HAPPENED
+;	BECAUSE THERE WAS NO CALL AT EDSFLT IN THE MODEL B NON XADDR CODE
+;	ADDED CALL TO EDSFLT.
+;255	SAVE EDIT FROM GETTING AN EXTRA STORE CYCLE AT EDSSIG BY SENDING
+;	IT ALWAYS TO THE EDFLT1 LOCATION INSTEAD OF EDFLT THIS ONLY
+;	CHANGES WHAT HAPPENS IN MODEL B NON XADDR BECAUSE IN MODEL A
+;	EDFLT AND EDFLT1 ARE THE SAME LOCATION ANYWAY
+;254	CAUSE THE A INDRCT CHANGE IN 253 TO BE ONLY FOR NON EXTENDED
+;	ADDRESSING MACHINES. THIS THROWS DOUBT ON THE WORD SAVINGS
+;	THAT MIGHT HAVE BEEN POSSIBLE
+;253	CHANGE A INDRCT TO LOAD BOTH THE AR AND ARX, IN THE EXTENDED
+;	INSTRUCTION SET THIS HAPPENED TO BE DEPENDED ON AT EXT2+2 AND
+;	EXT2+3. THE DEFINITION OF A IND IN EA CALC/ WAS FIXED TO
+;	LOAD THE AR AND THE ARX
+;	I THINK THIS PERMITS THE SAVINGS OF AN EXTRA WORD AND SOME
+;	TIME ON ALL INDIRECTS. CHECK OUT FLUSHING INDR1 AND MAKING INDRCT
+;	DO THE DISPATCH AND GO TO COMPEA
+;	  FORCE ADB TO GENERATE AR*4 AS DEFAULT THIS DISABLES PARITY
+;	CHECKING ON THE FM WHEN IT IS NOT BEING READ FIXED IN
+;	DEFINITION OF ADB THIS WILL ALSO SPEED UP THE MACHINE BY SOME
+;	BECAUSE THE ADB FIELD CAN NO LONGER FORCE 3 TICS WITHOUT REALLY
+;	NEEDING THAT LONG
+;252	SAVE A WORD AT IOPGF+1 BY MAKING IT PILD+3 THIS ADDS THE SET
+;	ACCOUNT ENABLE TO AN UNDEFINED CASE.
+;251	TURNING ON PAGING CAUSED A HANG THIS WAS BECAUSE OF A MISIMPLIMENTED
+;	FIX IN 250. THE ATTEMPT TO PUT THAT FIX IN NO SPACE FAILED AND IT TOOK
+;	ONE WORD. AT LDPT+1 ADD BR/AR AT GTCST1 RECOVER THE AR FROM THE BR
+;	THIS SEEMS LIKE IT SHOULD BE ABLE TO BE BUMMED BUT I CANNOT
+;	FIGURE OUT HOW
+;	ALSO FIX A PLACE WHERE A PHYS REF WAS LEFT IN THE MODEL A CODE
+;	AT PGRF6+4 MODEL B CONDITIONAL IS AS IT WAS MODEL A IS NEW TO USE
+;	LD AR.PHYS MECHANISM
+;250	LOADING HIGH ORDER GARBAGE TO THE VMA WITH THE FIX FOR
+;	>256K CAUSES FUNNY THINGS TO HAPPEN. BITS GET CLOBBERED
+;	WITH AR0-8_SCAD 14 LINES AFTER SECIMM. ACTUALLY IS MORE
+;	HAIR BECAUSE OF CONFLICTING FIELDS. CODE ABOVE AND BELOW
+;	THAT GOT REARRANGED TO SIMPLER MODEL A AND MODEL B CONDITIONALS
+;	SINCE NOW ALL LINES ARE DIFFERENT. SHUFFLING OF FE IS DONE
+;	TO PROVIDE ROOM FOR A CONSTANT ON THE CORRECT SIDE OF THE SCAD
+;	AT LDPT A SIMILAR
+;	RECODING IS NEEDED. 4 LINES OF CODE ARE REDONE IN MODEL
+;	A CONDITIONAL AND CONDITIONALS ARE RESHUFFLED TO HAVE
+;	SIMPLER FORMAT
+;	NEW MACROS ARE ADDED GEN AR0-8, GEN FE AND AR0-8
+;	VMA_AR+LD AR.PHYS AND ITS FRIENDS ARE TAKEN OUT OF KLPAGING
+;	CONDITIONAL THEY ARE USED TO DO EXAMINES AND DEPOSITS NOW
+;247	FIX ST AR.PHYS TO GIVE BIT 4 INSTEAD OF BIT 5 AT CHALT
+;	AT PSTORE CHECK FOR AC REF AND IF SO WRITE FM MUST DO THIS
+;	BECAUSE LOAD AD FUNC DOES NOT SET MCL STORE AR
+;246	FIX MUUO, IN EXTENDED ADDRESSING, TO GET NEW PC BEFORE CLOBBERING
+;	THE USER AND PUBLIC FLAGS THAT TELL WHERE TO GET IT.  FIX CONDITIONAL
+;	ASSEMBLY AT INDRCT TO DO EA TYPE DISP IN MODEL A, NOT MODEL B.
+;245	ADDITIONAL FIXES FOR THE 256K PROBLEM, TO MAKE EXAMINE AND
+;	DEPOSIT WORK.  CHANGES AT CHALT TO CREATE CONSTANT "ST AR.PHYS",
+;	AND EXTENSIVELY NEAR PICYC1, PIDATI, AND PIDATO.  CHANGES ARE ALL
+;	UNDER MODEL B CONDITIONAL, BECAUSE MODEL B HARDWARE WORKS OK, AND
+;	THE FIX IS REGARDED AS CROCKISH.
+;244	WAIT FOR COMPLETION OF INDIRECT REFERENCE AT BYTEI+1 AND EXTI+1
+;	EVEN THOUGH INTERRUPT REQUEST HAS BEEN SEEN, SO AS NOT TO CONFUSE MBOX.
+;243	VARIOUS FIXES TO MAKE THESE SOURCES WITH MODEL.B SWITCH OFF
+;	EQUIVALENT TO MODEL A SOURCES, SO WE CAN DISCARD MODEL A SOURCES
+;	THE FIXES ARE:
+;		1) SWITCH SNORM.OPT, TO SAVE SPACE IN SINGLE PRECISION
+;		FLOATING NORMALIZATION.
+;		2) CREATION OF LD AR.PHYS MAGIC CONSTANT, TO SOLVE HARDWARE
+;		PROBLEMS GENERATING ADDRESSES ABOVE 256K.
+;242	FIX AT SECPTR+1 TO PRESERVE AR LEFT UNTIL WE CAN CHECK
+;	FOR BITS 12-17 NON ZERO CORRECT ADDRESS CONSTRAINTS AT
+;	SECIMM+1 & +2 TO GET BRANCHING RIGHT FOR SHARED AND INDIRECT
+;	SECTION POINTERS.  FIX AT LDIMM+1 TO CLEAR LH OF AR BEFORE
+;	LOADING VMA WITH SPT ADDRESS, TO PREVENT PAGE FAULT ON SPT
+;	REFERENCE.
+;241	MORE FIXES AT START: AND NEWPC:, FOR SAME PROBLEM AS 240.
+;	MUST LOAD FLAGS AND CLEAR VMAX, THEN LOAD VMA INTO PC TO CLEAR
+;	PCX, THEN RELOAD VMA TO GET EFFECT OF NEW FLAGS AND CLEARED
+;	PCX.  (MODEL A ONLY).
+;240	FIXES AT START: AND NEWPC: TO LOAD 23-BIT ADDRESS RATHER
+;	THAN 30-BIT, SINCE OTHER BITS ARE PC FLAGS.  AT SAME TIME AND
+;	PLACE, FIX MODEL A CODE TO CLEAR PC SECTION NUMBER.
+;237	CHANGE CONDITIONALS AROUND PUSH AND POP CODE FROM XADDR TO
+;	MODEL.B. COULD SIMPLIFY IFNOT XADDR.
+;236	FIX ADDRESS CONSTRAINTS ON USES OF EA MOD DISP IN MODEL
+;	B MACHINE WITH EXTENDED ADDRESSING OFF.  PROBLEMS AT COMPEA,
+;	BFETCH, AND EXT2.
+;235	SLIGHTLY CLEANER FIXES FOR PROBLEMS IN 234 TO AVOID WASTING TIME
+;	AND SPACE.  BYTE READ MACRO NEEDS TO SET VMA/LOAD, AND VMA_VMA
+;	HELD MACRO DOESN'T USE MEM FIELD UNLESS MODEL B AND KL PAGING.
+;	ALSO FIX CONDITIONAL ASSEMBLY STUFF TO AVOID SPURIOUS ERRORS.
+;234	INSTALL FIXES FOR SOME PLACES WHERE MODEL B CODE CAUSES CONFLICT
+;	WITH THE OLD NON KLPAGING NON EXTENDED ADDRESSING CODE
+;	THESE ARE AT BFETCH, PGF3-1, PGF6, EXT1+2
+;233	FIX THE FOLLOWING PROBLEMS:
+;		KL PAGING SHOULD PRODUCE A PAGE FAILURE WHEN BITS
+;		 12-17 OF A PRIVATE SECTION POINTER ARE NON 0
+;		 FIXED AT SECPTR ETC.
+;		EDIT DOES NOT ALLOW INTERUPTS
+;		 FIXED AT EDNXT1 AND AFTER THAT
+;		MAP SHOULD NOT BE LEGAL IN USER MODE
+;		 FIXED AT MAP2 AND CLEAN+15
+;		MOVMI IS SHORTENED BY MAKING IT THE SAME AS MOVEI
+;		 AT DON LEWINES SUGGESTION THIS IS IN DCODE 215
+;232	MERGE THE SECOND ORDER STATISTICS GATHERING CODE WITH THIS
+;	CODE INTENT IS TO KEEP IT HERE
+;231	CHANGE THE LOAD CCA DEFINITION TO REFLECT THE NEW HARDWARE
+;	THIS IS ENABLED WHEN THE MODEL.B ASSEMBLY SWITCH IS ON
+;230	THIS IS THE POINT WHERE MICHAEL NEWMAN TAKES OVER THE MICROCODE
+;	MAINTENCE SEVERAL BUG FIXES GET EDITED INTO 126 AT THIS POINT
+;	TWO SETS OF PARALLEL CODE WILL BE MAINTAINED FOR A WHILE.
+;	FIX THE CMPS PARODY ERROR PROBLEM WHEN ILLEGAL BITS ARE FOUND IN
+;	THE LENGTHS.
+;227	FIX PIBYTE TO GET DTE# CORRECT ON TO-10 TRANSFERS.  FIX MTRREQ
+;	CYCLES TO WAIT FOR STORE TO FINISH BEFORE RE-ENABLING ACCOUNT.
+;	FIX ADJSP OF LONG STACK POINTERS TO FETCH NEXT INSTR.
+;226	FIX EXMD TO LOAD AR, RATHER THAN ARX, WITH MARK POINTER, AS
+;	EXPECTED BY THE HANDLER.  FIX EDIT, SEVERAL PLACES, TO IGNORE
+;	LEFT HALF OF MARK & PATTERN ADDRESSES WHEN PC SECTION IS ZERO.
+;	FIX EDIT TO MAKE EXTENDED REFERENCE FOR PATTERN BYTES.
+;	FIX ADJSP TO BE MEANINGFUL WITH LONG STACK POINTERS
+;225	FIX BYTEA NOT TO CLOBBER FE ON INDIRECTS, FIX EXMD TO BACK
+;	UP VMA AFTER STORING DSTP2 AND BEFORE STORING DSTP.  FIX EDIT TO
+;	COUNT THE WHOLE PATTERN ADDRESS IF PC SECTION NOT ZERO.
+;224	FIX EXTEND ADDRESS CALCULATION TO RECOVER E0 FROM MQ, AND
+;	FIX EXTEND OPCODE TEST TO DISALLOW OPS >20.
+;	FIXES TO HANDLE NEW ENCODING OF AC-OP ON APR BOARD.
+;223	COMPLETE 222.  P HAS TO GO TO SC AS WELL AS AR0-5.  CREATE
+;	SUBROUTINE RESETP TO DO IT.  GET CODE IN SYNC WITH HARDWARE AND
+;	MOST RECENT SPEC FOR MEANING OF PXCT AC BITS IN EXTEND.  THUS
+;	UNDO COMMENT IN 221:  WE SHOULD LOOK AT PXCT B11.  ALSO FIX
+;	EXTEND TO USE CORRECT ENCODING OF BITS 9, 11, AND 12 FOR PXCT
+;	OF STRING OPERATIONS.  FIX DATAI PAG SO IT DOESN'T LOSE THE
+;	PREVIOUS CONTEXT AC BLOCK WHEN LOADING PREVIOUS SECTION #.
+;	INSERT CHANGE CLAIMED FOR EDIT 55, TO INHIBIT INTERRUPT DURING
+;	PI CYCLES.
+;222	FIX BYTE POINTER UPDATE ROUTINES GSRC & IDST IN EIS CODE
+;	TO UPDATE P WHEN INCREMENTING SECOND WORD.  JUST FORGOT TO. TRY
+;	AGAIN TO CONTROL EIS REFERENCES OFF E0, FOR EXTENDED OR NOT.
+;221	COMPLETE FIX OF 220, TO KEEP SR CORRECT THROUGH RELOAD OF IR
+;	IN EXTEND DECODING, AND TO CONTROL SR CORRECTLY FOR XBLT DST
+;	REFERENCES.  (WE WERE LOOKING AT PXCT B11, SHOULD BE B12).
+;220	FIXES SEVERAL PLACES TO USE "EA" IN DRAM A FIELD INSTEAD OF "I",
+;	NOTABLY BLT, WHICH WAS USING WRONG SECTION.  FIX EXTEND TO
+;	CONTROL VMA EXTENDED BEFORE FETCHING EXTEND-OP, SO AS NOT TO
+;	LOOK "UNDER" THE AC'S.  FIX XBLT FOREWARD TO STOP WHEN AC GOES
+;	TO ZERO, NOT -1.  ALSO CONTROL SR BEFORE INITIAL STORE TO GET
+;	CORRECT CONTEXT.
+;217	CODE CHANGES TO MAKE SECOND WORD OF BYTE POINTER WORK RIGHT
+;	WHETHER EFIW OR IFIW, BY CONTROLLING CRY18 OR CRY6.
+;216	RECODE EXTENDED INSTRUCTION SET DECODING & EFFECTIVE ADDRESS
+;	CALCULATION.  FIX UUO CODE TO INCREMENT VMA AFTER STORING PC.
+;	FIX ADJBP TO GET 36 BIT ADDRESS ADJUSTMENT IF B12 SET.
+;215	REARRANGE CONDITIONAL ASSEMBLY DEFAULTS TO BE MORE LOGICAL
+;	INSERT FORM FEEDS AND COMMENTS TO HELP BEAUTIFY THE LISTING.
+;	REWORK THE NEW JRST'S, TO MAKE THEM SMALLER, FASTER, AND TEST
+;	IO LEGAL BEFORE DISMISSING.  PUT IN XBLT.
+;214	MODIFY ADJBP AND UUO'S FOR EXTENDED ADDRESSING. REWORK PARITY
+;	ERROR HANDLING, IN A FRUITLESS ATTEMPT TO MAKE IT SMALLER,
+;	BUT SUCCESSFULLY MAKING IT CLEARER.  FIX ASSEMBLY ERRORS IN EIS
+;	DUE TO AC4 CHANGES, AND ADD CODE TO HANDLE LONG BYTE POINTERS
+;	IN AC'S.  PUT IN CODE TO GIVE PAGE FAIL 24 ON ILLEGAL FORMAT
+;	INDIRECT WORD.
+;213	FIX LDB & DPB TO TEST POINTER BIT 12 ON CALL TO BYTEA.
+;212	MODIFY JSP, JSR TO STORE FULL PC WITHOUT FLAGS IN NON-ZERO SEC
+;	SEPARATE CONDITIONALS FOR "MODEL B" MACHINE FROM THOSE FOR
+;	EXTENDED ADDRESSING MICROCODE.
+;211	REMOVE UNNECESSARY DIDDLING OF VMA USER BIT DURING PAGE REFILL,
+;	AND ELIMINATE SPECIAL CASE FOR MAP INSTRUCTION, WHEN EXTENDED
+;	ADDRESSING HARDWARE EXISTS TO SOLVE THESE PROBLEMS.
+;	FIX SEVERAL CASES OF SIGNS DISP WITH INADEQUATE CONSTRAINT.
+;210	FIX DEFINITION OF "SKP LOCAL AC REF", WHICH CONFUSED "AC
+;	REF" WITH "LOCAL AC REF".
+;207	FIX JRSTF (AND ITS DERIVATIVES) TO LOAD FLAGS INTO AR AFTER
+;	DOING EA MOD DISP, WHICH WOULD OTHERWISE CLOBBER THEM.  FIX
+;	COMPEA CODE TO LET AREAD HARDWARE LOAD AR.  OTHERWISE GET SEC #.
+;206	FIX PCTXT ROUTINE TO GET PREVIOUS CONTEXT SECTION.
+;205	FIX POPJ TO LOAD HALFWORD OR FULLWORD PC ACCORDING TO PC SECT
+;204	FIX CONDITIONALS AROUND LOC 47, WRONG IN 202.  FIX DEFINITION
+;	OF A INDRCT, DOESN'T NEED #07.  FIX STACK INSTRUCTIONS FOR
+;	EXTENDED ADDRESSING.  MUST NOT LOAD VMA FROM FULL AD.
+;203	INCLUDE CODE AT NEXT+2 TO GENERATE ADDRESS MASK (LOW 23 BITS)
+;	AT HALT TIME, AND CODE IN PICYCLE TO USE IT TO GET 23 BIT ADDR
+;	OUT OF IOP FUNCTION WORD.
+;202	MOVE "40+A" LOCATIONS TO "A" UNDER EXTENDED ADDRESSING.  CHANGE
+;	ALL CALL MACROS TO GENERATE CALL BIT INSTEAD OF SPECIAL FUNC'S.
+;201	BEGIN EXTENDED ADDRESSING CHANGES IN EARNEST.  INTEGRATE NEW
+;	EFFECTIVE ADDRESS COMPUTATION CODE, AND REVISE INSTRUCTION
+;	ROUTINES AS NECESSARY.
+;126	FIX STRAC3-2, WHERE COMMA GOT LEFT OFF WHEN IFETCH MOVED
+;125	REMOVE NXT INSTR FROM STAC1, STRAC3, & STAC4, MAKING THEM JUMP
+;	TO FINI INSTEAD.  PROBLEM INVOLVES A RACE IF PAGE FAIL OCCURS
+;	WHILE WRITING FM.  IF FM ADDRESS CHANGES BEFORE COND/FM WRITE
+;	GOES FALSE, APR BOARD MAY GRONK PARITY BIT OF SOME FM LOC'N.
+;	THIS RESULTS IN SOME SOME PATHS FROM FETCH TO NICOND BECOMING
+;	LONGER THAN 6 TICKS, SO THE FETCHES GOT SHUFFLED IN SOME PLACES.
+;	MICROCODE PATCH ELIMINATES MOST PROBABLE CAUSE, WHICH IS PAGE
+;	FAIL AT NICOND TIME WHILE WRITING AC OTHER THAN 0.  IT DOES NOT
+;	TAKE CARE OF THE POSSIBILITY THAT COND/FM WRITE WILL GLITCH AT
+;	INSTR 1777 TIME.
+;124	FIXES IN SEVERAL PLACES TO SET AND CLEAR ACCOUNT ENABLE SO AS
+;	TO GET REPEATABLE ACCOUNTING MEASURES OF USEFUL WORK DONE. THE
+;	ENABLE IS NOW CLEARED FOR METER UPDATE CYCLES AND KL PAGE REFILL
+;	CYCLES.  THE HARDWARE ALREADY TAKES CARE OF PI CYCLES.
+;123	CORRECT 122 TO CONSTRAIN LOC "UNHALT", AND TO LOAD ARX FROM AR,
+;	SO AS TO LET "SKP AR EQ" WORK.  PROBLEM AROSE BECAUSE MACRO ALSO
+;	TESTS ARX00-01.  FIX EDIT, WHEN STORING DEST POINTER ON SELECT
+;	SIGNIFICANCE START, TO ELIMINATE AMBIGUITY IN DEST P FIELD.
+;122	SPEC CHANGE TO EXIT FROM HALT LOOP, SO THAT AR0-8=0 WITH AR9-35
+;	NON-ZERO LOADS AR INTO PC TO START PROCESSOR.  THIS IS DIFFERENT
+;	FROM EXECUTING JRST BECAUSE PC FLAGS ARE CLEARED.
+;121	FIX TO 120 TO ALLOW A CYCLE BETWEEN FILLER FROM MEMORY AND
+;	WRITING IT INTO FM (THUS PARITY CAN BE COMPUTED).  ALSO CLEAR
+;	STATE REGISTER IN EDIT BEFORE GETTING NEXT PATTERN BYTE.
+;120	FIX EIS TO TOLERATE PAGE FAIL ON READ OF FILL BYTE IN MOVSRJ
+;	OR B2D CONVERSION.  REQUIRES GETTING FILLER BEFORE STORING DLEN
+;	ALSO INTEGRATE OPCODE COUNTING/TIMING CODE UNDER CONDITIONALS
+;117	FIX PARITY ERROR CODE TO WRITEBACK AR ON RPW ERROR.
+;116	REWRITE OF DDIV, SO THAT THE NO-DIVIDE TEST IS ON THE MOST
+;	SIGNIFICANT HALF OF THE MAGNITUDE OF THE DIVIDEND, RATHER THAN
+;	THE MAGNITUDE OF THE MOST SIGNIFICANT HALF.  IN THE PROCESS,
+;	SAVE TIME AND SPACE.  ALSO PUT IN CONDITIONAL ASSEMBLY VARIABLE
+;	"WRTST" TO INHIBIT WRITE TEST CYCLE FOR INSTRUCTIONS WHICH
+;	APPEAR NOT TO NEED IT, AND THUS TO SPEED THEM UP.
+;115	FIX SBDIAG TO SET MCL REG FUNC TO INHIBIT EBOX MAY BE PAGED.
+;114	RECODE STRING COMPARE TO SAVE SPACE AND TIME.  CHANGE DEFAULTS
+;	FOR KLPAGING TO INCLUDE EIS, EXCLUDE TRACKS FEATURE.  CHANGE
+;	KLPAGING (NEW SPEC) TO KEEP "LOGICALLY WRITABLE" IN SOFTWARE BIT
+;113	RECODE KL PAGING TO ELIMINATE PROBLEM OF WRITING HARDWARE
+;	PAGE TABLE BEFORE CHECKING FOR AGE TRAP, AND THEREFORE LEAVING
+;	THE PAGE ACCESSIBLE AFTER THE TRAP.  THE RECODING ALSO IMPROVES
+;	THE ALGORITHM IN THAT THE HARDWARE ENTRY INCLUDES THE W BIT SET
+;	IF THE CORE TABLES ALLOWED WRITE AND THE CST INDICATES WRITTEN,
+;	EVEN IF THE CURRENT REFERENCE WAS NOT A WRITE.
+;	ALSO FIX CODE WHICH WRITES PT DIR, TO GET WRITE REF BIT FROM
+;	VMA HELD INTO BIT 5 OF SAVED PAGE FAIL WORD.
+;112	FIX PAGE FAIL CODE FOR USE WITH PROB SHEET 1396, WHICH LOADS
+;	PC IF PAGE FAIL OCCURS ON NICOND.  THUS CODE NEEDN'T CHECK FOR
+;	FETCH AT CLEAN, WHICH CAUSED OTHER PROBLEMS ON PARITY ERRORS.
+;	CLEAR FE AND SC IN NXT INSTR MACRO (JUST CLEANLINESS).
+;111	PATCH SEVERAL ROUTINES WITH THE FOLLOWING MACRO --
+;	FETCH WAIT	"MEM/MB WAIT"
+;	TO PREVENT SEQUENCES IN WHICH PAGE FAIL INFO CAN GET LOST
+;	BECAUSE OF LONG TIME FROM REQUEST TO MB WAIT.  THESE PATCHES
+;	SHOULD BE REMOVED AFTER AN ECO HAS BEEN INSTALLED TO FIX.
+;	IN ADDITION, EBUSX SUBROUTINE HAS BEEN MODIFIED TO PREVENT RACE
+;	CONDITION WHEN SETTING UP IO FUNCTION WITH COND/EBUS CTL AND
+;	MAGIC # BIT 4.  MUST NOT CHANGE #5 THROUGH #8 ON NEXT CYCLE.
+;	FIX KLPAGING CODE TO GO BACK TO AREAD ON MAP REF, BECAUSE
+;	MEM/AD FUNC DOESN'T CORRECTLY RESTORE APR REG FUNC.  ALSO MAKE
+;	THE CODE SMARTER ON NO MATCH CONDITION, SO REQUEST DOESN'T HAVE
+;	TO BE RESTARTED AND IMMEDIATELY FAIL AGAIN.
+;110	GIVE UP ON THE OLD STRING COMPARE CODE, INSTALLING MIKE NEWMAN'S
+;	VERSION.  SOMEWHAT SLOWER, BUT GIVES THE RIGHT ANSWERS.
+;	FIX LDB CODE TO WAIT FOR MEM WORD EVEN IF INTERRUPT REQUEST
+;	SEEN, SO AS NOT TO GET CONFUSED WHEN IT ARRIVES OR PAGE FAILS.
+;	ALSO IMPROVE CLRPT ROUTINE USED BY CONO AND DATAO PAG TO START
+;	LOOP WITH VMA CLEARED AND PT WR SELECTION SETUP CORRECTLY.
+;107	FIX STRING COMPARES TO CHECK FOR INTERRUPT.  THIS INVOLVED
+;	CHECKING DURING GSRC ROUTINE, WHICH ELIMINATES NEED FOR CHECK
+;	IN SRCMOD (WHICH CALLS GSRC).  IT ALSO REQUIRED CLEARING SFLGS
+;	AT STARTUP, AND ADJUSTING DLEN UPDATE CODE IN DEST FILL TO GET
+;	VALID LENGTH STORED ON INTERRUPT.
+;106	ELIMINATE RACE IN DECODING OF # FIELD ON MTR BOARD BY HOLDING
+;	LOW 3 BITS THROUGH NEXT MICROINSTRUCTION.
+;	FIX LUUO AND MUUO TO ALLOW INTERRUPTS.
+;	FIX B2D OFFSET TO SIGN-EXTEND E1 AFTER INTERRUPT.  FINISH 105,
+;	TO GET ENTIRE AR LOADED WHILE CLEARING MQ (ARL WAS HOLDING).
+;	FIX KL PAGING TO USE VMA/1 INSTEAD OF VMA/AD WHEN RESTORING VMA
+;	FROM VMA HELD OR COPIES THEREOF.
+;	FIX UFA NOT TO ALWAYS GET UNDERFLOW ON NEGATIVE RESULTS.
+;	SAME FIX AS EDIT 103 OF BREADBOARD.  WHERE DID IT GET LOST?
+;105	FIX KL PAGING AS REVISED BY EDIT 103 TO CORRECTLY RESTORE
+;	BR ON NO-MATCH CONDITION
+;	ANOTHER FIX TO B2D, TO CLEAR MQ ON ENTRY.  BUG INVOLVED GARBAGE
+;	FROM MQ SHIFTING INTO ARX DURING DEVELOPMENT OF POWER OF TEN.
+;104	FIX BINARY TO DECIMAL CONVERSION, WHICH WAS NOT GOING TO CLEAN
+;	ON FINDING AN INTERRUPT, AND ON RESTART WITH FPD SET, WAS NOT
+;	SETTING UP SLEN.  TSK, TSK.  CORRECT CLEANUP FOR DEST FILL IN
+;	MOVSRJ, WHICH WAS INCREMENTING BOTH SLEN AND DLEN, SHOULD
+;	HAVE BEEN NEITHER.  FIX JSR, BROKEN BY EDIT 103.  JUMP MUST BE
+;	TO E+1, NOT E.
+;103	CREATE CONDITIONAL ASSEMBLY FOR EXTENDED ADDRESSING. UNDER IT,
+;	CREATE MEM FIELD DEFINITIONS, SUPPRESS SXCT.
+;	SAVE A WORD IN JSR BY USING JSTAC IN COMMON WITH PUSHJ.
+;	FORCE TIME FIELD IN CASES WHERE ASSEMBLER DEFAULT SCREWS UP.
+;	ADD INTERRUPT TESTS IN KL PAGING CODE TO PREVENT HANGS, AND
+;	REVISE PAGE FAIL WORD TO ELIMINATE THE NEW FAIL CODES.
+;102	ATTEMPT ANOTHER FIX OF MOVSRJ, CVTBDX FILL.  EDIT 71 LOSES
+;	DUE TO INCONSISTENCY -- DLEN UPDATE MUST NOT PRECEED CLEANUP.
+;	CREATE CONDITIONAL ASSEMBLY SWITCHES TO CONTROL EXTENDED
+;	INSTRUCTION SET, DOUBLE INTEGER ARITHMETIC, AND ADJBP.  CHANGE
+;	DEFAULT OF IMULI.OPT, WHICH CAN GET SIGN WRONG ON OVERFLOW.
+;101	FIX METER REQUEST CODE TO "ABORT INSTR" EVEN IF NOT SETTING
+;	PI CYCLE.  THIS SHOULD FIX OCCASIONAL LOSS OF TRAPS PROBLEM.
+;100	FIXES TO KL PAGING CODE TO PREVENT LOADING VMA FROM AD WHILE
+;	REQUESTING PHYSICAL REF.  FIX JSR TO PREVENT FM PARITY STOP
+;	ON STORE TO AC.  FIX 1777 TO FORCE RECIRCULATION OF AR/ARX,
+;	EVEN IF MBOX RESP STILL TRUE.
+;77	FIX DDIV TO GET MQ SHIFTED LEFT ONE PLACE, WITHOUT INTRODUCING
+;	AN EXTRA BIT, AT DDVX1.  THIS INVOLVES INHIBITING ADA TO PREVENT
+;	AD CRY0 FROM COMMING INTO MQ35.
+;76	FIX UFA TO ALLOW AN EBOX CYCLE BETWEEN FETCH AND NICOND WHEN
+;	FRACTION SUM IS ZERO, AT UFA3.
+;75	PUT BACK INSTRUCTION "MBREL" REMOVED BY EDIT 64.  NECESSARY TO
+;	ENSURE THAT EBOX REQUEST FOR FETCH DOESN'T COME UP WHILE
+;	REGISTER FUNCTION IS IN PROGRESS, WHICH WOULD CONFUSE MBOX ON
+;	STARTING THE FETCH.
+;74	CHANGES TO EIS FOR NEW-SPEC AC USAGE.  CHANGES TO KL PAGING FOR
+;	INDIRECT, IMMEDIATE SECTION POINTERS
+;73	FIX JRA TO PREVENT WRITING AC WITH DATA FRESH FROM MEMORY (ALLOW
+;	A CYCLE FOR PARITY CHECK).  FIX DPB CODE TAKE ONLY 3 TICKS ON
+;	RETURN FROM BYTEA, SO THAT CACHE DATA DOESN'T ARRIVE INTO AR
+;	AND ARX UNTIL DPB1, WHEN THE BYTE HAS GOTTEN OUT TO MQ.
+;72	FIX DEFINITION OF SP MEM/UNPAGED TO INHIBIT VMA USER.  FIX
+;	PAGE FAIL CODE TO CHECK FOR VMA FETCH BEFORE LOOKING AT
+;	INTERRUPT REQUEST.  PROBLEM WAS INTERRUPT CONCURRENT WITH
+;	PAGE FAIL ON JRSTF TO USER.  PC FLAGS GOT RESTORED, BUT VMA
+;	NEVER COPIED TO PC BECAUSE PAGE FAIL INHIBITED NICOND, AND
+;	INTERRUPT ABORTED PAGE FAIL HANDLING TO LOAD PC.
+;71	DEFINE FMADR/AC4=6.  FIX MOVFIL ROUTINE TO PUT AWAY UPDATED
+;	LENGTH DIFFERENCE WHEN INTERRUPTED, THUS AVOIDING RANDOMNESS
+;	IN MOVSRJ, CVTBDX. FIX CVTBD CALL TO MOVFIL TO PRESERVE SR.
+;	CHANGE STMAC AND PIDONE FROM "FIN XFER" TO "FIN STORE", BECAUSE
+;	STORE WAS IN PROGRESS, WHICH CAUSED FM WRITE IF AC REF, AND
+;	GOT A PARITY ERROR DUE TO ADB/FM.
+;70	FIX PXCT 4,[POP ...], WHICH DIDN'T GET DEST CONTEXT SET FOR
+;	STORE.  MUST USE SR_100 TO SET IT.
+;67	FIX PROBLEM IN ADJBP BY WHICH BYTES/WORD WAS GETTING LOST
+;	WHEN DIVIDE ROUTINE LOADED REMAINDER INTO BR.  SOLVED BY
+;	SAVING BYTES/WORD IN T1.
+;66	FIX KL PAGING TO RESTORE VMA ON TRAP, SAVE ADDRESS OF POINTER
+;	CAUSING TRAP, AND NOT RESTORE ARX EXCEPT FOR BLT PAGE FAIL.
+;	ALSO SET TIME PARAMETER ON ADB/FM TO ALLOW TIME FOR PARITY
+;	CHECKING OF FM.
+;65	FIX KL PAGING CODE TO DO MBWAIT AFTER DETERMINING THAT PARITY
+;	ERROR HAS NOT OCCURRED, SO AS TO GET CORRECT VMA TO SAVE.
+;	CREATE SYMBOLS FOR KL PAGE FAIL CODES.  PUT CONDITIONAL
+;	ASSEMBLY AROUND IMULI OPTIMIZATION CODE, AND SXCT.  CREATE
+;	SYMBOL "OPTIONS" IN # FIELD FOR MICROCODE OPTIONS.
+;64	MICROCODE FOR KL10 PAGING (PAGE REFILL, MAP INSTR)...
+;	REMOVE UNNECESSARY INSTRUCTION MBREL: FROM SWEEP AND APRBO
+;	COSMETIC CHANGES TO KEEP COMMENTS & MACRO DEFINITIONS FROM
+;	OVERFLOWING LINE OF LISTING, AND INSERTION OF CONDITIONAL
+;	ASSEMBLY CONTROL OF LONG FLOATING POINT INSTRUCTIONS.
+;63	IN MTR REQUEST ROUTINE, DON'T DISMISS WHEN PI CYCLE HASN'T
+;	BEEN SET.
+;62	FIX RDMTR CODE TO PUT 35 IN SC BEFORE GOING TO DMOVEM CODE.
+;61	FIX PIIBP ROUTINE TO USE CALL.M INSTEAD OF SPEC/CALL,
+;	WHICH GETS OVERRIDDEN BY P_P-S... IN MTR REQUEST SERVICE
+;	ROUTINE, DON'T SET PI CYCLE UNLESS REQUEST IS FOR VECTOR.
+;60	FIX DATAO PAG TO DO MB WAIT AFTER STORING EBOX ACCT AND
+;	BEFORE CHANGING VMA.
+;57	RE-CODE USES OF A@, B@ TO USE VMA/1, RATHER THAN VMA/AD,
+;	IN ORDER TO GET CORRECT CONTEXT ON INDIRECT WORD. SEE MCL4
+;56	FIX SECOND PART OF PICYCLE (TAG NEXT:) TO ENSURE THAT
+;	PC+1 INH, KERNEL CYCLE, ETC REMAIN UP DURING 2ND PART.
+;	ALSO CHANGE SPEC/FLAG CTL FOR ECO 1261, WHICH REQUIRES
+;	#07 TO BE OPPOSITE OF #04 TO GENERATE SCD LEAVE USER.
+;55	FIX SPEC INSTR/SET PI CYCLE TO INHIBIT INTERRUPTS
+;	(IN PARTICULAR, METER UPDATE REQUESTS).  MAKE SURE VALID
+;	DATA SAVED ON IO PAGE FAIL AND PARITY ERRORS. REMOVE
+;	BACKWARDS BLT... IT BROKE TOO MANY PROGRAMS.
+;54	FIX OVERFLOW CHECK IN IMULI OPTIMIZATION TO INH CRY 18
+;	UPDATE TO USE CONDITIONAL ASSEMBLY IN MICRO VERS 20.
+;53	FIX T1,T2 PARAMETERS ON BYTE DISP, SIGNS DISP
+;52	CORRECT SHIFT AMOUNT FOR IMULI OPTIMIZATION, AND FIX MACRO
+;	DEFINITIONS FOR SET SR?, WHICH WERE ALWAYS SETTING SR0.
+;51	OPTIMIZE IMULI OF TWO POSITIVE OPERANDS (TO SPEED UP SUBSCRIPT
+;	CALCULATIONS) BY TAKING ONLY 9 MULTIPLY STEPS AND STARTING
+;	NEXT INSTRUCTION FETCH EARLIER.  OPTIMIZATION CAN BE REMOVED
+;	BY COMMENTING OUT TWO INSTRUCTIONS AT IMULI, AND ONE FOLLOWING
+;	IMUL.  ALSO FIX APRBI/UVERS TO KEEP SERIAL # OUT OF LH.
+;50	INTRODUCE SKIP/FETCH AND CODE IN PAGE FAIL RECOVERY TO LOAD
+;	PC FROM VMA IF PAGE FAIL OCCURED ON FETCH, BECAUSE NICOND
+;	CYCLE, WHICH SHOULD HAVE LOADED PC, GETS INHIBITED BY INSTR 1777
+;	ALSO INCLUDE EXTENDED INSTRUCTION SET.
+;47	UNDO XCT CHANGES OF EDIT 46, WHICH BROKE XCT DUE TO INSUFFICIENT
+;	TIME FOR DRAM HOLD BEFORE USING "A READ". ALSO FIX VECTOR
+;	INTERRUPT CODE TO LOOK AT CORRECT BITS FOR CONTROLLER NUMBER.
+;46	FOLLOW-ON TO EDIT 45, SAVING 2 WORDS AND A CYCLE
+;	ALSO MOVE JRST TO 600, JFCL TO 700, UUO'S TO 100X AS PREPARATION
+;	FOR EXTENDED INSTRUCTION SET
+;45	FIX SXCT TO LOOK AT AC FIELD OF SXCT, NOT SUBJECT INSTRUCTION,
+;	WHEN DECIDING WHETHER TO USE BASE-TYPE ADDRESS CALCULATION.
+;44	FIX PAGE FAIL LOGIC TO WORK FOR EITHER PAGE FAIL OR PARITY
+;	ERROR.  EDITS 42 AND 43 BOTH WRONG.  ALSO CORRECT RACE IN
+;	WRITING PERFORMANCE ANALYSIS ENABLES TO PREVENT SPURIOUS COUNTS.
+;43	CORRECT USE OF PF DISP BY EDIT 42.  LOW BITS ARE INVERTED
+;42	FIX BUGS INTRODUCED BY EDIT 40, WHICH MADE FLTR OF 1B0 HANG
+;	TRYING TO NEGATE IT, AND FIX UP EXPONENT CORRECTION ON LONG
+;	SHIFT LEFT.  ALSO PUT IN CODE TO HANDLE PARITY ERROR PAGE
+;	FAILURES, AND SET TIME CONTROLS ON 43-47.
+;41	REWRITE OF VECTOR INTERRUPT PROCESSING TO MAKE DTE VECTORS
+;	GO TO 142+8N, WHERE N IS DTE#.  RH20 GO TO PROGRAMMED ADDRESS
+;	IN EPT, EXTERNAL DEVICES USE EXEC VIRTUAL ADDRESSES.
+;40	IMPROVEMENTS TO FLOATING NORMALIZATION TO MAKE LONG SHIFTS
+;	FASTER, PRIMARILY TO HELP FLTR
+;37	FIX FLOATING DIVIDE SO THAT THE TRUNCATED FORM OF A NEGATIVE
+;	QUOTIENT IS EQUAL TO THE HIGH-ORDER PART OF THE INFINITE-
+;	PRECISION QUOTIENT.  SEE COMMENTS IN THE CODE.  ALSO BUM
+;	A CYCLE OUT OF FLOATING DIVIDE BY STARTING THE NORMALIZE
+;	WHILE MOVING THE QUOTIENT INTO AR.
+;	SEVERAL CHANGES TO MAKE TRACKS FEATURE WORK
+;36	FIX CONO MTR TO PUT DATA ON BOTH HALVES, SO PI CAN SEE PIA
+;35	FIX CONI PI TO READ BACK WRITE EVEN PARITY ENABLES
+;34	FIX BLT USE OF SR, SO NO CORRECTION OF ARX NECESSARY
+;33	FIX PAGE TABLE REFERENCES TO FORCE UNPAGED REF.  FIX TRAP
+;	TO SET PC+1 INHIBIT.
+;32	CORRECT SETTING OF SC FOR SHIFTING METER COUNTERS, TO GET
+;	12 BITS UNUSED AT RIGHT WHEN IT GETS TO CORE.
+;31	RECODE ASH AND ASHC TO SAVE SPACE
+;30	FIX JFFO TO SHIFT AR CORRECTLY AT JFFO2.  BUM ADJSP TO USE
+;	STMAC FOR UPDATING PDL POINTER.
+;27	FIX CONI PAG TO READ EBUS.  CORRECT DEFINITIONS OF MBOX
+;	REGISTER FUNCTIONS, WHICH HAD BITS 0 AND 3 INVERTED.
+;26	FIX DEFINITIONS OF DIAG FUNC CONO MTR AND CONO TIM, WHICH
+;	WERE REVERSED
+;25	FIX DECODING OF PHYSICAL DEVICE NUMBER IN PI FUNCTION CODE
+;	AND RE-CODE JFCL FOR FEWER MICROWORDS
+;24	FIX JFFO TO SHIFT ON FIRST 6-BIT TEST STEP, AND JRSTF TO
+;	KEEP E AND XR DISTINCT.  ALSO SET LOAD-ENABLE BITS IN
+;	DATAI PAG, WORD.
+;23	FIX CONO PI, TO HOLD AR ONTO EBUS THRU REL EBUS, BECAUSE
+;	PI BOARD DELAYS CONO PI TO GET CONO SET EQUIVALENT.
+;22	MORE JFCL FIXES.  MUST USE FLAG CTL/JFCL WHILE CLEARING BITS,
+;	AS WELL AS WHILE TESTING THEM.  BUM A WORD OUT OF JFFO BY
+;	MAKING THE SIXBIT COUNT NEGATIVE.  CHANGES SO SHIFT SUBR
+;	RETURNS 2, BYTEA 1.  FIX SETMB TO STORE BACK AND FETCH.
+;21	RE-WRITE JFCL TO KEEP LOW OPCODE BITS OUT OF AR0-1, BECAUSE
+;	PC00 GETS PROPAGATED LEFT TO ADA -1 AND -2.
+;20	FIX BLT TO LOAD BR WITH SRC-DST ADDR
+;	ALSO SET TIME PARAMETERS ON CONDITIONAL FETCH FUNCTIONS
+;17	CHANGE SWEEP ONE PAGE TO PUT PAGE # IN E, RATHER THAN ADDR.
+;	ALSO CHANGE COND/FM WRITE TO MATCH ECO #1068.
+;16	FIX JUMP FETCH MACRO TO LOAD VMA FROM PC+1 (TEST SATISFIED
+;	OVERRIDES THIS TO HOLD VMA).  ALSO BUM ONE MICROWORD FROM MUUO.
+;15	INCLUDE PAGE FAIL DISP IN DISP/ FIELD
+;	ALSO MAKE MUUO STORE PROCESS CONTEXT WORD AT 426, AND SETUP
+;	PCS FROM PC EXTENSION, CWSX FROM SXCT
+;14	FIX DEFINITIONS OF SKIP/IO LEGAL, AC#0, SC0, EVEN PAR
+;	ALSO FIX DATAO PAG, TO SEND LH DATA ON BOTH HALVES OF EBUS
+;13	ALIGN SETEBR SO CALL TO SHIFT RETURNS CORRECTLY
+;12	MAKE SURE AD COPIES AR DURING DATAO, CONO, AND CLEAR AR AT
+;	SET DATAI TIME.
+;11	FIXES TO CONTINUE CODE SO CONSOLE WORKS, AND CORRECTIONS TO
+;	PROTECTED DEP/EXAM SO PROTECTION PROTECTS.
+;10	FIX A READ MACRO TO VMA/PC+1.  AD OVERRIDES UNLESS DRAM A=1
+;07	RE-WRITE OF PI CYCLE CODE TO RECOGNIZE NEW EBUS SPEC.
+;06	FIX DEFINITIONS OF SKIPS 40-57 BY COMPLEMENTING 3 LOW ORDER BITS
+;	FIX MULSUB TO CORRESPOND TO NEW CRA LOGIC
+;05	FIX EBUS CTL DEFINITIONS TO GET F01 CORRECT.  CORRECT FLAG CTL
+;	DEFINITIONS TO PREVENT LEAVE USER WHEN NOT WANTED, AND FIX
+;	JRST/JFCL TO HAVE FLAGS IN AR WHEN NEEDED.
+;04	FIX RETURNS FROM MULSUB, PUT BETTER COMMENTS ON SNORM CODE,
+;	IMPROVE SNORM ALGORITHM TO MINIMIZE WORST-CASE TIME.
+;03	FIX DISPATCH ADDRESS PROBLEMS, MOSTLY JRST/JFCL AND UUO'S.
+;02	CHANGES PER INSTRUCTION SET REVIEW -- DELETE USE OF BIT12 OF
+;	BYTE POINTERS, CHANGE BLT TO PUT FINAL SRC,DST ADDRESSES IN AC,
+;	MAKE TRUNCATE FORM FLOATING POINT REALLY TRUNCATE, ELIMINATE
+;	LOCAL JSYS SUPPORT, DELETE PXCT OPCODE (XCT W/ NON-ZERO AC IN
+;	EXEC MODE), LUUO'S GO TO 40/41 OF CURRENT SPACE.
+;01	UPDATES FOR .TITLE AND .TOC PSEUDO OPS,
+;	AND VARIOUS CHANGES FOR PROTO HARDWARE
+;00	CREATION, BASED ON BREADBOARD AS OF EDIT 66
+.BIN

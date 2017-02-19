@@ -1,0 +1,185 @@
+.TOC	"Rotate and Logical Shift -- LSH, ROT"
+
+	.DCODE
+240:	I,		J/ASH		;ASH [423]
+	I,		J/ROT		;ROT
+	I,		J/LSH		;LSH
+	I,		J/JFFO		;JFFO
+	I,		J/ASHC		;ASHC [423]
+	I,		J/ROTC		;ROTC
+	I,		J/LSHC		;LSHC--Adjoins UUO (247)
+	.UCODE
+;
+;	Single word Logical SHift.  If |count| > 36, we just zero AC0.
+;
+1412:					;[413] Must adjoin JFFO
+LSH:	AR_AC0,SC_EA,SKP AR18,I FETCH	;Get count, data, shift direction
+=0	ARX_0S,J/SHFLOD			;Left. Zeros come in from right
+	ARX_AR,AR_0S,SC_#+SC,#/36.,	;Right. Swap data to right, adjust
+	    SKP SCAD0,J/SHFLOD		; count, and shift if needed
+;
+;	Single word ROTate.  We must always do the shift (even if the count
+;	is ridiculously huge), so we cannot have an I FETCH pending if we
+;	must normalize the count.  Still, we can optimize if -37 < count
+;	< 36. [413]
+;
+1415:					;Must adjoin ASH
+ROT:	AR_AC0,ARX/AD,SC_EA,SKP AR18,	;Get data and count. Left or right
+	    I FETCH			; rotation?
+=0	AR_SHIFT,SC_#+SC,#/-36.,	;Left rotation. Try to do it, and
+	    SKP SCAD0,J/ROTL		; test range
+	SC_#+SC,#/36.,SKP SCAD0		;Right rotation. In range?
+=0	AR_SHIFT,J/STAC			;[417] Yes. Shift and store
+	FETCH WAIT,SC_#+SC,#/36.,	;No. Force next instruction into
+	    SKP SCAD0			; ARX and try to normalize count
+=0
+RTRLUP:	MQ_ARX,ARX_AR (AD),J/ROTDUN	;[417] OK. Save inst, restore data
+	SC_#+SC,#/36.,SKP SCAD0,J/RTRLUP;Loop until count in range
+;
+=0					;Left rotation
+ROTL:	FETCH WAIT,SC_#+SC,#/-36.,	;Count too big. Wait for I FETCH
+	    SKP SCAD0,J/RTLLUP		; and normalize count
+	AC0_AR,NXT INSTR		;Count OK. Done!
+=0
+RTLLUP:	SC_#+SC,#/-36.,SKP SCAD0,J/RTLLUP;Keep normalizing until in range
+	MQ_ARX,ARX_AR (AD),SC_#+SC,#/36.;Keep inst, restore data and count
+ROTDUN:	AR_SHIFT,ARX/MQ,J/STAC		;[417] Shift, snarf inst, and store
+.TOC	"Rotate and Logical Shift Combined (ROTC, LSHC)"
+
+;
+;	ROTate Combined--Normalize the count first, then do rotation.
+;
+1417:					;Next to ASHC
+ROTC:	ARX_AC1,SC_EA,FE_#,#/-36.,	;Get low word
+	    SKP AR18			; Which way do we rotate?
+=0	AR_AC0,MQ_AC0,FE_FE+SC,		;Left. Put high word in both low
+	    BYTE DISP,TIME/3T,J/ROTCL	; and high words. Test count range
+	AR_ARX,MQ_ARX,ARX_AC0,SC_#+SC,	;Right. Put low word in both places,
+	    #/36.,SKP SCAD0		; force count into range
+=0
+ROTCR:	MQ_SHIFT,AR_ARX (AD),ARX/MQ,	;Count all set. Generate left word,
+	    I FETCH,J/DSHIFT		; set up for right word
+	AR_ARX,MQ_ARX,ARX/MQ,SC_#+SC,	;Not yet in range. Swap shift words
+	    #/36.,SKP SCAD0,J/ROTCR	; and keep forcing count up
+;
+=110
+ROTCL:	AR_ARX,MQ_ARX,ARX_AR (AD),SC_FE,;Long left. Swap shift words, keep
+	    FE_FE-#,#/36.,SKP SCAD0,J/ROTCL; adjusted count, and test again
+	MQ_SHIFT,AR_ARX (AD),ARX/MQ,	;Count now in range. Shift left
+	    I FETCH,J/DSHIFT		; half and set for right half
+;
+;	Logical SHift Combined.  Normalize the count before we do
+;	any shifting.  This is very similar to ROTC.
+;
+1004:					;Must adjoin UUO (247)
+LSHC:	ARX_AC1,AR+MQ_0.M,SC_EA,SKP AR18;Get low word. Left or right?
+=0	AR_AC0,FE_#+SC,#/-36.,		;Left. Get high word; test count
+	    SKP SCAD0,J/CLEFT		; range
+	MQ_ARX,ARX_AC0,SC_#+SC,#/36.,	;Right. Shuffle data; try to force
+	    SKP SCAD0			; shift count into 0-35 range
+=0
+CRIGHT:	MQ_SHIFT,AR_ARX (AD),ARX/MQ,	;Count OK. Generate left word
+	    I FETCH,J/DSHIFT		; and set up for right word
+	MQ_ARX,ARX_AR (AD),SC_#+SC,	;Long shift. Adjust one word to
+	    #/36.,SKP SCAD0,J/CRIGHT	; right and loop again
+;
+=0
+CLEFT:	AR_ARX,ARX_0S,SC_FE,FE_FE-#,	;Long left shift. Adjust one word
+	    #/36.,SKP SCAD0,J/CLEFT	; left, force count into range
+	MQ_SHIFT,AR_ARX (AD),ARX/MQ,	;Count set. Shift left word and set
+	    I FETCH			; for right half shift
+DSHIFT:	AR_SHIFT,ARX/MQ,J/DLOAD		;Shift right word, store, and exit
+.TOC	"Arithmetic Shifts (ASH, ASHC) and JFFO"
+
+;
+;	[423] ASH completely rewritten for speed.
+;
+1414:					;[413] Must adjoin ROT
+ASH:	AR_AC0,ARL/AD,MQ_0.M,SC_EA,	;ASH. Fetch count and data, test
+	    VMA/PC+1,SKP AR18		; left/right, set VMA for NICOND
+=0	ARX_AR,AR_SIGN,SC_#+SC,#/1,	;Left. Set up to examine bits
+	    J/ASHL			; shifted out
+	ARX_AR,AR_SIGN,SC_#+SC,#/36.,	;Right. Adjust count and set up
+	    SKP SCAD0,FETCH,J/SHFLOD	; to shift in sign bits
+;
+ASHL:	BR/AR,MQ_SHIFT,AR_ARX (AD),	;MQ_bits shifted out, BR_sign bits
+	    ARX/MQ,GEN #+SC,#/-37.,SKP SCAD0; Set for shift. Is count huge?
+=0	MQ_AR XOR BR			;Yes. Force overflow unless 0 data
+	ARX_SHIFT,SC_#,#/35.,		;Shift all but sign bit. Was
+	    SKP MQ NE BR,I FETCH	; significant data shifted out?
+=0	AR_BR,J/SHFLOD			;No. Set to shift in sign and store
+	SET AROV,AR_BR,J/SHFLOD		;Yes. Set overflow and sign shift
+;
+;	Arithmetic SHift Combined.  This has been left alone due to its
+;	low execution frequency.
+;
+1416:					;[415] Must adjoin ROTC
+ASHC:	SC_EA,SKP AR18,AR_AC1*2		;Set up shift count, get low word
+=0	ARX_AR,AR_AC0,SKP SC NE,J/ASHL1	;[423] Left shift. Check for null
+	ARX_AR,AR_AC0,SC_#+SC,#/36.,	;HERE IF RIGHT SHIFT
+	    SKP SCAD0			;CHECK FOR LONG ONE
+=0
+ASHR1:	BR/AR,ARX_SHIFT,AR_SIGN,J/ASHR2	;LOW OUTPUT TO ARX
+	ARX_AR,AR_SIGN,SC_#+SC,#/36.,	;HERE IF SHIFT COUNT .GT. 36
+	    SKP SCAD0,J/ASHR1		; Count it down to reasonable
+
+ASHR2:	BRX/ARX,ARX_BR,J/ASHX		;[423] HIGH INPUT TO ARX
+;
+;	[423] Here for left double arithmetic shift.
+;
+=0
+ASHL1:	I FETCH,J/NOP			;SHIFT 0 IS A NOP
+	BR_AR LONG,AR_SIGN		;SAVE INPUT, GEN SIGN WORD
+	BR/AR,AR_BR*2 LONG		;SAVE SIGN, GET MAGNITUDE BITS
+=0*
+ASHL2:	BRX/ARX,ARX_AR,AR_BR,		;HI IN TO ARX, LOW TO BRX
+	    CALL,J/SHIFT		;CALL SHIFTER TO GET BITS LOST
+	SKP AR NE BR			;ANY BITS DIFFERENT FROM SIGN?
+=0
+ASHL3:	AR_ARX,ARX_BRX,GEN #+SC,#/-36.,	;RESTORE HI TO AR, LOW TO ARX
+	    SKP SCAD0,J/ASHL4
+	SET AROV,J/ASHL3		;BITS SHIFTED OUT NE SIGN
+=0
+ASHL4:	AR_ARX,ARX_0S,SC_#+SC,#/-36.,	;HERE IF E .GT. 36
+	    J/ASHL2			;SHIFT 36 PLACES, TRY AGAIN
+	MQ_SHIFT,AR_BRX,CLR ARX,	;HIGH OUTPUT TO MQ,
+	    SC_#+SC,#/-1		;COMPENSATE FOR EXTRA SHIFT
+	ARX_SHIFT			;LOW OUTPUT TO ARX
+	AR_BR,BRX/ARX,ARX/MQ,SC_#,#/35.	;SIGN TO AR, HIGH OUT TO ARX
+ASHX:	AR_SHIFT,ARX_BRX,SC_#,#/35.,	;[423] Generate high word and
+	    J/ST2AC			; set up low for finish
+;
+;	Jump if Find First One (!)--This is implemented by first finding
+;	the group of six bits which contains the first one, and then
+;	isolating the actual bit.  The bit isolation has been rewritten
+;	to speed up the slower cases (actually, the faster cases were
+;	helped a bit, too).  [432]
+;
+1413:					;Must be near LSH
+JFFO:	SC_#,#/6,AR_AC0,SKP AD NZ	;JFFO! Any bits set at all?
+=0	AC1_AR,I FETCH,J/NOP		;AC was zero, no jump
+	ARX+MQ_0.M,FE_P,SKP SCAD NZ,	;Test first 6 bits
+		AR_SHIFT,ARL/SH		; and discard them
+=0
+JFGRUP:	AR_SHIFT,FE_P,SKP SCAD NZ,	;[432] Loop through six bit groups
+	    ARX_ARX-1,J/JFGRUP		; until we find a one bit
+;
+;	We now have the negative of the group number in ARX.  Convert this
+;	to a bit number, and test the FE in two bit groups to find which
+;	bit we hit on.
+;
+	ARX_ARX*-6,GEN FE AND #,#/60,	;Convert group to bit number
+	    SKP SCAD NZ			; Is one in first two bits?
+=0	BRX/ARX,ARX_2+MQ0,GEN FE AND #,	;No. Must add at least 2 to group
+	    #/14,SKP SCAD NZ,J/JFBITS	; count. Is one in second two bits?
+	BRX/ARX,ARX_0S,GEN FE AND #,#/40,;Yes. Set up 0 and test bit 0 in
+	    SKP SCAD NZ,FETCH,J/LOWBIT	; group
+;
+=0
+JFBITS:	ARX_ARX*2,GEN FE AND #,#/2,	;Must be in third two bits. Set up
+	    SKP SCAD NZ,FETCH,J/LOWBIT	; 4 and test bit 4 in group
+	GEN FE AND #,#/10,SKP SCAD NZ,	;In second two bits; leave bit
+	    FETCH			; number at 2. Is bit 2 set?
+=0
+LOWBIT:	AR_ARX+BRX+1,TIME/2T,J/STAC1	;No, so low bit is. Add 1 to bit #
+	AR_ARX+BRX,TIME/2T,J/STAC1	;Yes. Add group+bit number in group

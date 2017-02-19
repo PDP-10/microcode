@@ -1,0 +1,587 @@
+	.TOC	"Single Byte Instructions:  ILDB, LDB"
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;									;
+;	The following code represents a complete overhauling of the	;
+;	byte oriented PDP-10 instructions.  These instructions have	;
+;	been reworked with one and two word global byte pointers in	;
+;	mind.  Special emphasis has been placed on high speed oper-	;
+;	ation of the one word byte pointers, even where	that has meant	;
+;	spending a substantial amount of CRAM; TWGs, by contrast,	;
+;	have just been made to work.					;
+;									;
+;	The approach used for OWLs has been to minimize the amount	;
+;	of computation that is not overlapped with memory reference.	;
+;	This has been done by carefully initializing the SC and FE	;
+;	in such a manner that the next shift count can be computed	;
+;	while the current shift is taking place.  The OWG code dis-	;
+;	patches into CRAM tables which set up these counts.  This	;
+;	requires a lot of CRAM (one word for each possible OWG for	;
+;	both loading and depositing bytes), but it eliminates the	;
+;	requirement for a memory access to look up that information	;
+;	in the EPT.							;
+;									;
+;						--QQSV			;
+;									;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;
+;	ILDB--Increment a byte pointer (in memory), then load the byte
+;	it specifies into AC.
+;	LDB--Load byte specified by byte pointer into AC.
+;	The constraints immediately below are necessary to make IBP
+;	work.
+;
+	.DCODE
+134:	RW,	AC,	J/ILDB
+	R,	AC,	J/LDB		;No write test for LDB
+	.UCODE
+
+=0****000000
+ILDB:	ARX_AR,SC_P-#,#/37.,		;Save word for later dispatch
+		BYTE DISP,CALL [INCRBP]	; Test for OWG, increment BP
+=100
+LDB:	MEM_AR,ARX_AR,			;Await possible pointer store
+		SC_P-#,#/37.,BYTE DISP	; Save P; split OWL, OWG, TWG
+=1100	GEN AR,EXT BYTE READ,SC_FE#,	;An OWG. Start reading the word
+		AR0-3 DISP,J/OWGLDB	; Split the low and high OWGs
+	MEM_AR,SET FPD,FE_S,		;A simple OWL. Save S and unwind
+		EA MOD DISP,CALL [LDEA]	; byte pointer EA
+	GEN AR,EXT BYTE READ,SC_FE#,	;An OWG (bit 12 is irrelevant)
+		AR0-3 DISP,J/OWGLDB	; Split the low and high OWGs
+	MEM_AR,SKP -VMA SEC0		;A TWG, maybe. Not in section 0
+=11100	FE_S,SET FPD,
+		EA MOD DISP,CALL [LDEA]	;No TWGs in section 0 (treat as OWL)
+	FE_S,READ BP2			;Real TWG. Treat as global indirect
+	SET FPD,CALL [LEAIND]
+=11111	FIN LOAD,SC_#-SC,#/-1,		;Wait for byte word. SC = 36-(P+S)
+		SKP SC0,I FETCH		; Does byte go off the top?
+=
+=0	CLR FPD,ARX_AR,AR_0S,SC_FE+SC,	;Yes. Byte is at top of word; try
+		SKP SCAD0,J/SHFLOD	; to truncate it. Test if P off top
+OWGLOD:	CLR FPD,ARX_SHIFT,AR_0S,	;Normal byte. Put at top of ARX;
+		SC_FE#,J/SHFLOD		; SC = S. Set for final shift
+;
+;	Load byte from an OWG.  Split P&S in range 45-57 octal (in which
+;	case we optimize for a byte size of 6) or 60-77 (optimize for size
+;	7.)  (Unfortunately, we can't reasonably optimize for size 8 bytes,
+;	as they run from 54 to 60, thus including both ranges.)  The idea
+;	here is to set up the shift counts that will be required for the
+;	actual byte.  Thus, SC_36.-(P+S) and FE_S.
+;
+=1011
+OWGLDB:	FE_#,#/6,SH DISP,J/OWGLOW	;Range is 45-57. Assume size 6
+	FE_#,#/7,SH DISP,J/OWGHIG	;Range is 60-77. Assume size 7
+;
+=00000
+OWGLOW:					;Dummy label (40-44 are OWLs)
+=00101	FIN LOAD,I FETCH,CLR FPD,J/SETZ	;45 S=6, P=36 (bad). Clear the AC
+	FIN LOAD,I FETCH,CLR SC,J/OWGLOD;46 S=6, P=30
+	FIN LOAD,I FETCH,SC_#,#/6,J/OWGLOD;47 S=6, P=24
+	FIN LOAD,I FETCH,SC_#,#/12.,J/OWGLOD;50 S=6, P=18
+	FIN LOAD,I FETCH,SC_#,#/18.,J/OWGLOD;51 S=6, P=12
+	FIN LOAD,I FETCH,SC_#,#/24.,J/OWGLOD;52 S=6, P=6
+	FIN LOAD,I FETCH,SC_#,#/30.,J/OWGLOD;53 S=6, P=0
+
+	FIN LOAD,I FETCH,CLR FPD,J/SETZ	;54 S=8, P=36 (bad). Treat as SETZ
+	CLR SC,J/SIZE8L			;55 S=8, P=28. Correct the size
+	SC_#,#/8,J/SIZE8L		;56 S=8, P=20
+	SC_#,#/16.,J/SIZE8L		;57 S=8, P=12
+OWGHIG:	SC_#,#/24.,J/SIZE8L		;60 S=8, P=4
+
+	FIN LOAD,I FETCH,CLR FPD,J/SETZ	;61 S=7, P=36 (bad). Treat as SETZ
+	FIN LOAD,I FETCH,CLR SC,J/OWGLOD;62 S=7, P=29. Ready to shift
+	FIN LOAD,I FETCH,SC_#,#/7,J/OWGLOD;63 S=7, P=22
+	FIN LOAD,I FETCH,SC_#,#/14.,J/OWGLOD;64 S=7, P=15
+	FIN LOAD,I FETCH,SC_#,#/21.,J/OWGLOD;65 S=7, P=8
+	FIN LOAD,I FETCH,SC_#,#/28.,J/OWGLOD;66 S=7, P=1
+
+	FIN LOAD,I FETCH,CLR FPD,J/SETZ	;67 S=9, P=36 (bad). Clear the AC
+	CLR SC,J/SIZE9L			;70 S=9, P=27. Correct size
+	SC_#,#/9,J/SIZE9L		;71 S=9, P=18
+	SC_#,#/18.,J/SIZE9L		;72 S=9, P=9
+	SC_#,#/27.,J/SIZE9L		;73 S=9, P=0
+
+	FIN LOAD,I FETCH,CLR FPD,J/SETZ	;74 S=18, P=36 (bad). Clear AC
+	FIN LOAD,I FETCH,CLR FPD,J/HLRZ	;75 S=18, P=18. This is HLRZ, folks
+	FIN LOAD,I FETCH,CLR FPD,J/HRRZ	;76 S=18, P=0. Same as HRRZ
+
+	AR_MEM,J/ILLOWG			;77 Illegal. Force UUO
+;
+SIZE8L:	FIN LOAD,I FETCH,FE_#,#/8,J/OWGLOD;Fix up all size 8 bytes
+SIZE9L:	FIN LOAD,I FETCH,FE_#,#/9,J/OWGLOD;Do the same for size 9
+	.TOC	"Single Byte Instructions:  DPB, IDPB"
+;
+;	IDPB--Increment a byte pointer (in memory), then store the rightmost
+;	bits of the AC into the byte it specifies.
+;	DPB--Store the rightmost bits of the AC into byte specified by
+;	pointer.
+;	The constraints immediately below are necessary to make IBP
+;	work.
+;
+	.DCODE
+136:	RW,	M,	J/IDPB
+	R,	M,	J/DPB		;No write test if no increment
+	.UCODE
+
+=0****000000
+IDPB:	ARX_AR,SC_P-#,#/37.,BYTE DISP,	;Save for dispatch later, test
+		CALL [INCRBP]		; for OWG, increment pointer
+=100
+DPB:	MEM_AR,ARX_AR,SC_P-#,#/37.,	;Await possible pointer store
+		BYTE DISP		; Save P; test OWL, OWG, TWG
+=1100	GEN AR,EXT BYTE RPW,SC_FE#,	;An OWG. Start byte read; SC_2
+		AR0-3 DISP,J/OWGDPB	; Split into OWG groups
+	MEM_AR,SET FPD,FE_-S,		;An OWL. Save byte size
+		EA MOD DISP,J/DPEA	; and compute byte word address
+	GEN AR,EXT BYTE RPW,SC_FE#,	;An OWG. See above
+		AR0-3 DISP,J/OWGDPB	; (Bit 12 is irrelevant here)
+	MEM_AR,SKP -VMA SEC0,J/DEPTWG	;Maybe a TWG. Never in section 0
+=11110
+GUDSIZ:	FE_-SC-1,SC_FE,MQ_FM[AC0],J/DEPBYT;Copy byte to MQ; FE_36-P, SC_-S
+	FE_#+SC,#/1,J/GUDSIZ		;Size too large. Force to 36-P
+=
+=0
+DEPTWG:	MEM_AR,SET FPD,FE_-S,		;No TWGs allowed in section 0
+		EA MOD DISP,J/DPEA
+	FE_-S,READ BP2			;A TWG. Start reading second word
+	SET FPD,J/DEAIND		;And dive into indirection loop
+;
+;	At this point, we have FE = 36-P and SC = -S with memory being
+;	loaded into both AR and ARX.  Also, both S and P have been forced
+;	into the range 0:36.  The deposit is done with three shifts:
+;
+;	Shift 1:  AR and ARX have memory; shift count = 36-P
+;	Shift 2:  AR has byte to deposit, ARX has previous shift;
+;		  shift count = 36-S
+;	Shift 3:  AR and ARX have previous shift; shift count = P+S
+;
+DEPBYT:	AR_MEM,ARX_MEM,TIME/3T,		;Wait for memory load
+		SC_FE,FE_#+SC,#/36.	;SC_36-P, FE_36-S
+DEPOWG:	AR_MQ,ARX_SHIFT,		;Fetch byte, do first shift
+		SC_FE,FE_#-SC,#/72.	;SC_36-S, FE_72-(36-P) = 36+P
+	AR_SHIFT,ARX_SHIFT,SC_FE-SC	;Next shift; SC_(36+P)-(36-S) = P+S
+RELMEM: AR_SHIFT,STORE,CLR FPD,
+		SR_0,J/STMEM		;Last shift; store and clear FPD
+;
+;	Deposit byte with an OWG.  Once again, P&S gets split into the
+;	ranges 45-57 octal (optimized for size 6) and 60-77 (optimized
+;	for size 7).  In addition to setting SC to 36-P and FE to 36-S,
+;	this code also copies AC to MQ.  Since MQ_FM[] uses the # field,
+;	this is accomplished by reading the AC into ARX and then copying
+;	it to the MQ just before the cache can step on ARX with the
+;	byte data.  The timing for this is a tad hairy, but it seems to
+;	work.
+;
+=1011
+OWGDPB:	ARX_FM[AC0],FE_#,#/30.,SH DISP,	;Low range OWG. Assume size 6
+		TIME/3T,J/ODLOW		;Fetch byte to store
+	ARX_FM[AC0],FE_#,#/29.,SH DISP,	;High range. Assume size 7
+		TIME/3T,J/ODHIGH
+;
+=00000
+ODLOW:					;Another dummy (40-44 are OWLs)
+=00101	AR_MEM,CLR SC,J/RELMEM		;45 S=6, P=36 (bad). Release memory
+	MQ_ARX,AR_MEM,SC_#,#/6,J/DEPOWG	;46 S=6, P=30. Copy byte to MQ
+	MQ_ARX,AR_MEM,SC_#,#/12.,J/DEPOWG;47 S=6, P=24
+	MQ_ARX,AR_MEM,SC_#,#/18.,J/DEPOWG;50 S=6, P=18
+	MQ_ARX,AR_MEM,SC_#,#/24.,J/DEPOWG;51 S=6, P=12
+	MQ_ARX,AR_MEM,SC_#,#/30.,J/DEPOWG;52 S=6, P=6
+	MQ_ARX,AR_MEM,SC_#,#/36.,J/DEPOWG;53 S=6, P=0
+
+	AR_MEM,CLR SC,J/RELMEM		;54 S=8, P=36. Just release memory
+	MQ_ARX,SC_#,#/8,J/SIZE8D	;55 S=8, P=28. Copy byte, fix size
+	MQ_ARX,SC_#,#/16.,J/SIZE8D	;56 S=8, P=20
+	MQ_ARX,SC_#,#/24.,J/SIZE8D	;57 S=8, P=12
+ODHIGH:	MQ_ARX,SC_#,#/32.,J/SIZE8D	;60 S=8, P=4
+
+	AR_MEM,CLR SC,J/RELMEM		;61 S=7, P=36 (bad). Release memory
+	MQ_ARX,AR_MEM,SC_#,#/7,J/DEPOWG	;62 S=7, P=29. Copy byte to MQ
+	MQ_ARX,AR_MEM,SC_#,#/14.,J/DEPOWG;63 S=7, P=22
+	MQ_ARX,AR_MEM,SC_#,#/21.,J/DEPOWG;64 S=7, P=15
+	MQ_ARX,AR_MEM,SC_#,#/28.,J/DEPOWG;65 S=7, P=8
+	MQ_ARX,AR_MEM,SC_#,#/35.,J/DEPOWG;66 S=7, P=1
+
+	AR_MEM,CLR SC,J/RELMEM		;67 S=9, P=36, no good. Let go!
+	MQ_ARX,SC_#,#/9,J/SIZE9D	;70 S=9, P=27. Copy byte, fix size
+	MQ_ARX,SC_#,#/18.,J/SIZE9D	;71 S=9, P=18
+	MQ_ARX,SC_#,#/27.,J/SIZE9D	;72 S=9, P=9
+	MQ_ARX,SC_#,#/36.,J/SIZE9D	;73 S=9, P=0
+
+	AR_MEM,CLR SC,J/RELMEM		;74 S=18, P=36. Just unpause memory
+	AR_MEM,CLR FPD,J/HRLM		;75 S=18, P=18. Treat as HRLM
+	AR_MEM,CLR FPD,J/HLL		;76 S=18, P=0. Treat as HRRM
+
+	FIN LOAD,STORE,J/ILLOWG		;77 Illegal byte pointer. UUO it
+;
+SIZE8D:	AR_MEM,FE_#,#/28.,J/DEPOWG	;Fix FE for size 8 bytes
+SIZE9D:	AR_MEM,FE_#,#/27.,J/DEPOWG	;Same for size 9
+	.TOC	"Single Byte Instructions:  IBP, ADJBP"
+;
+;	IBP--Increment a byte pointer (in memory).
+;	ADJBP--Adjust a one or two word byte pointer from memory by an
+;	amount specified by the (non zero) AC.
+;	Both of these instructions key off of the same op code (133);
+;	they are distinguished by ADJBP having a non zero AC field.
+;
+;	The IBP case is rather simple.
+;
+	.DCODE
+133:	R,		J/IBP		;IBP and ADJBP--must adjoin FSC
+	.UCODE
+
+1503:					;[345] In same block of 8 as FSC
+IBP:	SC_P-#,#/37.,ARX_0S,SKP AC EQ 0	;[407] Test for OWG. IBP or ADJBP?
+=11010
+IBPTST:	SC_-S,MQ_ARX,SKP SC0,J/ADJBP	;[407] ADJBP. Clear MQ0. OWG?
+	SKP SC0,CALL [INCRBP]		;IBP. Test for OWG and do it
+=11111	FIN STORE,CLR FPD,I FETCH,J/NOP	;Tidy up and leave
+;
+;	ADJBP is handled separately for OWGs and OWL/TWGs.  We consider
+;	the latter case first.
+;	Step 1:  figure out the byte capacity of a word.  This is broken
+;	into the capacity to the left of the current byte (including the
+;	byte itself) and the capacity to the right of the byte.  If these
+;	add up to zero, then the byte can't fit in a word, and we return
+;	to the user with no divide set.  If the byte size is zero, we
+;	return with the pointer as is.
+;	For this version, we compute the capacities by using repeated
+;	subtraction.  Since the numbers involved are typically no greater
+;	than five or six (and are never bigger than 36) this will be faster
+;	than division.
+=0
+ADJBP:	FE_P,ARX_2+MQ0,AR0-3 DISP,J/ADJOWG;[407] OWG. Split on range
+	FE_P,SC/SCAD,ARX_0S,SKP SC0	;OWL/TWG. Is the size zero?
+=0	SKP -VMA SEC0,J/OWLCPY		;Yes. Test for possible TWG
+	MQ_ARX,FE_FE-S,SKP SCAD0	;No. Clear MQ. Bytes to the right?
+=0
+CAPLOW:	ARX_ARX+1,FE_FE-S,SKP SCAD0,	;Yes. Count the byte and look
+		J/CAPLOW		; for another one
+	BR/AR,BRX/ARX,ARX_-2+MQ0,	;No more. Save count and pointer
+		P_#-SC,#/36.		; and set up next count
+=0
+CAPHGH:	P_P-S,ARX_ARX+1,SKP SCAD0,	;Count possible byte on left,
+		J/CAPHGH		; saving alignment info
+	T0_AR,AR_ARX+BRX+1		;All counted. Get total capacity
+	SKP AR NZ			;Will any bytes fit into word?
+=0	I FETCH,J/NODIVD		;No. This is pretty silly
+;
+;	Step 2:  generate a modified adjustment count and compute the
+;	number of words to move and the relative byte position within
+;	the word.  All adjustments are done relative to the first byte
+;	in the word, so that the resulting quotient is the actual
+;	number of words to add to the base address.  If the adjustment
+;	is negative, however, we must back up the quotient by one and
+;	offset the remainder by the capacity if it is non zero.
+;
+;	In order to speed up the division, the absolute value of the
+;	modified adjustment is broken into ranges of up to 63, 64 to
+;	2**18-1, and 2**18 or greater.  This lets us use step counts of
+;	7, 19, and 36, respectively, saving a lot of time for the most
+;	common cases.
+;
+;	For this portion of the work, OWGs and OWLs are identical.
+;
+ADJOIN:	ARX_ARX+FM[AC0],SC_#,#/30.	;Compute modified adjustment
+	T1_AR,BR/AR,AR_ARX,BRX/ARX,	;Divisor is capacity. Is modified
+		ARX_0S,SIGNS DISP,TIME/2T; adjustment negative?
+=0111	AC0_AR,BRX/ARX,ARX_AR (AD),	;No. Clear BRX; use adjustment as
+		ARL_ARL.S,ARR+MQ_0.S,	; dividend, and look at high order
+		J/POSADJ		; half of dividend for speedup
+	AC0_AR,BRX/ARX,ARX_-BRX,	;Yes. Negate adjustment for both
+		ARL/ADX,ARR+MQ_0.S	; dividend and test
+POSADJ:	AR_ARX (ADX),ARX_SHIFT,		;Generate high order 30 bits of
+		FE_#,#/36.,SKP AR NZ	; dividend. Are high 18 bits zero?
+=0	ARX_SHIFT,SC_FE,		;Yes. Align low six bits to top of
+		SKP ARX NZ,J/SMALDV	; word. Is that enough?
+	ARX_AR*2,CLR AR,FE_#,#/33.,SC_FE;Need long division. Align dividend
+=000
+ADJDIV:	DIVIDE,AR_2(AR-BR),ARX/ADX*2,	;Do first divide step
+		CALL [DIVS3]		; and call subroutine for the rest
+=010
+SMALDV:	AR_0S,FE_#,#/4,CALL [DIVS1]	;Very short division is adequate
+	ARX_AR SWAP,AR_0S,FE_#,#/16.,	;Medium size needed. Put significant
+		J/ADJDIV		; dividend bits in proper spot
+;
+;	Return from division is either 6 (negative dividend) or 7
+;	(non negative dividend).  We tuck the negative offset code in
+;	at 4 and 5 for convenience.
+;
+NEGADJ:	ARX_-BRX,J/ADJUST		;Zero remainder. Negate quotient
+	AR_AR+FM[T1],J/ADJUST		;Non zero. Offset by capacity
+;
+;	On exit from division, AR has the signed remainder and ARX and
+;	BRX have the positive quotient.  If the dividend was negative,
+;	we must either negate the quotient or negate and subtract one
+;	(thus one's complementing it) depending upon whether there was
+;	a non zero remainder.
+;
+	ARX_BRX COMP,SKP AR0,J/NEGADJ	;Negative dividend. Complement
+					; quotient and test remainder
+;
+;	Step 3:  add the final quotient to the address, and offset the
+;	byte into the word by the adjusted remainder.  To do this, we
+;	must finally differentiate an OWL from a TWG.  (Recall that we
+;	saved most of the original byte pointer (including bit 12) in
+;	T0 before we did the division.)  In any event, for an OWL we
+;	add the quotient to the right half of the byte pointer; for a
+;	TWG we fetch the second word and then add the quotient to bits
+;	6-35 if it's global, to bits 18-35 if it's local.
+;
+;	After this, we subtract the byte pointer S field from (36 - the
+;	alignment information left in the P field) precisely remainder
+;	times (recall that division copied SC, preloaded with 36, into
+;	FE when it finished).  That's about it.
+;
+;	OWGs split off their separate way.
+;
+ADJUST:	MQ_AR,AR_T0,SR DISP		;Remainder to MQ. OWG or OWL/TWG?
+=1110	BR/AR,SC_P+S,MQ_MQ-1,		;OWL/TWG. Copy pointer, add first
+		BYTE DISP,J/ADJTWG	; S, generate count. Perhaps TWG?
+	FE_P+1,BR/AR,AR_MQ,		;An OWG. Grab initial P&S and
+		I FETCH,J/SNATCH	; set up quotient addition
+;
+=101
+ADJTWG:	FE_FE-SC,ARL_ARL,ARR_ARX+BR,	;OWL. Adjust address; initialize P
+		ARX/MQ,J/ADJP
+	FE_FE-SC,AR_ARX,ARX_AR (AD),	;Perhaps TWG. Move quotient to AR
+		SKP -VMA SEC0		; No TWGs allowed in section 0
+=00	ARL_ARXL,ARR_AR+BR,		;Section 0. An OWL in TWG's clothing
+		ARX/MQ,J/ADJP
+	BR/AR,BRX/ARX,VMA_VMA+1,LOAD AR,;A real TWG. Keep quotient and
+		CALL [XFERW]		; remainder while fetching address
+=11	SC_P,AR_AR+BR,ARX_AR,SKP AR0	;Assume global address. Is it?
+=0	P_SC,J/TWGDUN			;Yes. Use 30 bit addition
+	ARL_ARXL,ARR_ARX+BR		;No. Foolish, but 18 bits is enough
+TWGDUN:	AC1_AR,AR_BRX,ARX/MQ		;Store address; restore first word
+;
+;	Address has been adjusted.  Adjust P by remainder bytes.
+;
+=100
+ADJP:	FE_FE-S,P_SCAD,ARX_ARX-1,	;Step to next byte and count
+		SKP ARX0,J/ADJP		; down the remainder
+TWGCPY:	I FETCH,J/STORAC		;Adjustment done. Load AC0
+;
+;	If the byte size is zero, we just load AC0, or ACs 0 and 1 if it's
+;	a TWG.
+;
+=111	VMA_VMA+1,LOAD ARX,J/DLOAD	;A TWG. Use DMOVE code to load it
+;
+=0
+OWLCPY:	I FETCH,J/STORAC		;Section 0, an OWL. Just load AC0
+	BYTE DISP,TIME/2T,J/TWGCPY	;Not section 0. Test AR12 for TWG
+;
+;	OWGs use the same basic algorithm as OWLs and TWGs, but the
+;	actual implementation of steps 1 and 3 is quite different.
+;	Step 1:  get the byte capacity of the word and current offset
+;	of the OWG within the word.  Note that OWGs may be split into
+;	ranges of sizes, with the capacity identical for each OWG within
+;	a range.  The current offset within the word can be computed by
+;	subtracting the range base + 1 from the P&S field.  The range base
+;	is saved in the OWG for later final adjustment.  The capacity is
+;	computed in a rather wry way:  ARX is initially loaded with the
+;	capacity - 4; later, AR is set to -1.  When AR*4 is subtracted
+;	from ARX, AR*4 will be -4 as long as ARX was positive.  The only
+;	negative case is for a capacity of 2 (for 18 bit bytes); that one
+;	is special cased.
+;
+=1000
+ADJOWG:					;40:43. No OWGs here
+=1001	ARX_2+MQ0,TIME/2T,P_#,#/45,	;44:47. Size 6: capacity 6, base 45
+		SC/SCAD,J/OWGCOM	;[407]
+	ARX_2+MQ0,TIME/2T,P_#,#/45,	;50:53. More size 6
+		SC/SCAD,J/OWGCOM	;[407]
+	ARX_0S,P_#,#/54,SC/SCAD,J/OWGCOM;54:57. Size 8: capacity 4, base 54
+	GEN FE-#,#/61,SKP SCAD0,J/EIGHT7;60:63. Either size 8 or size 7
+	GEN FE-#,#/67,SKP SCAD0,J/SEVEN9;64:67. Either size 7 or size 9
+	ARX_0S,P_#,#/67,SC/SCAD,J/OWGCOM;70:73. Size 9: capacity 4, base 67
+	GEN FE-#,#/77,SKP SCAD0		;74:77. Is this an illegal pointer?
+=0	AR_BR,J/UUO			;77 is no good. UUO it
+	BRX/ARX,ARX_1S,P_#,#/74,SC/SCAD,;74:76. Size 18: capacity 2, base 74
+		J/OWGCOM		; Save size; force ARX negative
+;
+=0
+EIGHT7:	ARX_1,TIME/2T,P_#,#/61,SC/SCAD,	;61:63. Size 7: capacity 5, base 61
+		J/OWGCOM
+	ARX_0S,P_#,#/54,SC/SCAD,J/OWGCOM;60 is the last size 8 byte
+;
+=0
+SEVEN9:	ARX_0S,P_#,#/67,SC/SCAD,J/OWGCOM;67 is the first size 9 byte
+	ARX_1,TIME/2T,P_#,#/61,SC/SCAD	;64:66 are the last size 7 bytes
+OWGCOM:	T0_AR,AR_1S,FE_FE-SC-1		;Save pointer; find initial offset
+	P_FE,ARX_ARX-AR*4,SKP ARX0	;Try to get capacity. Is it 2?
+=0	BRX/ARX,ARX_AR,AR_SIGN,		;No. Save it; set up offset and
+		SC_#,#/6,J/OFSHFT	; shift count for offset generation
+	ARX_AR,AR_SIGN,SC_#,#/6		;Yes. Size was loaded above
+OFSHFT:	AR_BRX,ARX_SHIFT,SR_1,J/ADJOIN	;Mark OWG and rejoin for step 2
+;
+;	Step 3: add the final quotient to the address, and offset the OWG
+;	into the word by remainder bytes.  Since this becomes a simple
+;	integer add, this portion is rather trivial.
+;
+SNATCH:	SC_EA,AR_ARX+BR,SR_0		;Grab offset; adjust address
+	P_FE+SC,J/STAC			;Add proper offset to P&S. Done!
+.TOC	"Subroutines for Single Byte Instructions"
+;
+;	INCRBP--Subroutine to increment a byte pointer.  The first (or
+;	only) word of the relevant pointer is in AR.  Call with SC_P-#,
+;	#/37.,BYTE DISP, thus testing for OWG and first part done
+;	simultaneously.  If FPD is set, this routine returns 4 without
+;	doing anything; otherwise, the pointer will be incremented and
+;	the store will have been started.  Return 4 if an OWL or TWG
+;	must recompute SC or on any OWG, 15 if an OWL and SC is OK, and
+;	17 if possibly a TWG with SC OK.  Note that ARX must have the
+;	first byte pointer word on exit if this is an OWL or TWG.
+;
+=010					;Test FPD and OWG
+INCRBP:	SC_FE#,SET FPD,AR0-3 DISP,J/OWGINC;OWG, no FPD. SC_2; test edges
+	P_P-S,BYTE DISP,J/BYTINC	;No OWG, no FPD. Check for overflow
+	RETURN4				;OWG, FPD. Forget it
+	RETURN4				;No OWG, FPD. No increment needed
+;
+;	Either OWL or TWG.  Check which; if no overflow, it doesn't really
+;	matter.
+;
+=100
+BYTINC:	SC_P-#,#/37.,STORE,RETURN15	;OWL, no overflow. Store and leave
+	FE_#,#/36.,GEN AR+1,		;OWL, overflow. Compute new P and
+		TIME/2T,J/OWLINC	; set up new address portion
+	SC_P-#,#/37.,STORE,RETURN17	;TWG, no overflow. Just like OWL
+	FE_#,#/36.,GEN AR+1,TIME/2T,	;TWG, overflow. Compute new P and
+		SKP -VMA SEC0		; test for valid TWG
+=0
+OWLINC:	P_FE-S,ARR_AR+1,TIME/2T,STORE,	;OWL. Increment address, set new P
+		J/SNARFP
+	P_FE-S.S,VMA_VMA+1,LOAD AR	;TWG. Set new P, fetch second word
+	ARX_AR,AR_MEM			;Save first word, await second
+	SC_P,BR/AR,SKP AR0,AR_AR+1	;Increment address, check I/EFIW
+=0	P_SC#,STORE,J/STORTG		;EFIW. Do full global increment
+	ARL_BRL,STORE			;IFIW. Just increment right half
+STORTG:	FIN STORE,AR_ARX,VMA_VMA-1,	;Finish second word
+		STORE,RETURN4		; and store first
+;
+SNARFP:	ARX_AR,SC_P-#,#/37.,RETURN15	;[351] Save offset P, new pointer
+;
+;	An OWG.  53, 60, 66, 73, 76, and 77 need special handling.
+;	All others just tick the P&S field.
+;
+=1000
+OWGINC:					;40:43. No OWGs here
+=1001	P_P+1,STORE,RETURN4		;44:47. No special handling
+	GEN AR+1,GEN P-#,#/53,		;50:53. 53 becomes 46
+		SKP SCAD NE,J/OVER6
+	P_P+1,STORE,RETURN4		;54:57. No special handling
+	GEN AR+1,GEN P-#,#/60,		;60:63. 60 becomes 55
+		SKP SCAD NE,J/OVER8
+	GEN AR+1,GEN P-#,#/66,		;64:67. 66 becomes 62
+		SKP SCAD NE,J/OVER7
+	GEN AR+1,GEN P-#,#/73,		;70:73. 73 becomes 70
+		SKP SCAD NE,J/OVER9
+	GEN AR+1,SC_P+1,SH DISP		;74:77. Test low P&S bits
+=1100	P_SC#,STORE,RETURN4		;74 becomes 75. Store and leave
+NXTOWG:	P_SC#,STORE,RETURN4		;75 becomes 76. Store and leave
+	AR_AR+1,TIME/2T,SC_#,#/75,	;76 becomes 75. Increment address
+		J/NXTOWG		; first
+ILLOWG:	MEM_AR,CLR FPD,J/FPNO		;77 Illegal byte pointer. UUO it
+;
+=0
+OVER6:	AR_AR+1,TIME/2T,SC_#,#/46,J/NXTOWG;53. Increment address first
+	P_P+1,STORE,RETURN4		;Others just tick P&S
+;
+=0
+OVER7:	AR_AR+1,TIME/2T,SC_#,#/62,J/NXTOWG;66. Increment address first
+	P_P+1,STORE,RETURN4		;Others just tick P&S
+;
+=0
+OVER8:	AR_AR+1,TIME/2T,SC_#,#/55,J/NXTOWG;60. Increment address first
+	P_P+1,STORE,RETURN4		;Others just tick P&S
+;
+=0
+OVER9:	AR_AR+1,TIME/2T,SC_#,#/70,J/NXTOWG;73. Increment address first
+	P_P+1,STORE,RETURN4		;Others just tick P&S
+;
+;	LDEA--Subroutine to compute the effective address of a byte from
+;	a one word local byte pointer.  Called with the byte pointer in ARX
+;	and EA MOD DISP on it.
+;	LEAIND--Entry point for two word global EA calculation on the
+;	second pointer word.  Called with READ BP2 on the second pointer
+;	word.
+;	Both entries return 37 with the byte being loaded into AR, and
+;	with the FE added to SC.
+;	Warning:  two of the words below (LDEA+1, LEAIND+5) cannot have
+;	their parity generated directly by the assembler.  The SKP AR0 macro
+;	can be used to force correct parity.  It will be ignored, since
+;	J/37.
+;
+=1100
+LDEA:	GEN AR,BYTE LOAD,		;No index, no indirect. Load byte
+		SC_FE+SC,RETURN37	; word
+	GEN AR+XR,INDEXED,BYTE LOAD,	;Index, no indirect. Add index
+		SC_FE+SC,RETURN37	; register to generate byte address
+	GEN AR,BYTE INDRCT,		;No index, indirect. Test for
+		SKP INTRPT,J/LEAIND	; interrupt
+	GEN AR+XR,INDEXED,BYTE INDRCT,	;[350] Index, indirect. Add index
+		SKP INTRPT		; register and test for interrupt
+=00
+LEAIND:	ARX_MEM,LONG EN,CALL [BYTIND]	;No interrupt. Unwind indirection
+	ARX_MEM,TAKE INTRPT		;Interrupted. Blow this place
+	XR,EA MOD DISP,TIME/3T,J/LDEA	;Local word at end. Untangle it
+	XR,EA MOD DISP,TIME/3T		;Global word at end. Indexed?
+=1110	GEN ARX,GLOBAL,BYTE LOAD,	;No indexing. Read global word
+		SC_FE+SC,RETURN37	; and add FE to SC
+	GEN ARX+XR,GLOBAL,BYTE LOAD,	;Indexing. Add index to address
+		SC_FE+SC,RETURN37,	; and do otherwise the same
+		SKP AR0			; (This forces odd parity)
+;
+;	DPEA--Routine to compute the effective address of a byte from
+;	a one word local byte pointer to be used in a deposit operation.
+;	Entered with the byte pointer in ARX and EA MOD DISP on it.
+;	DEAIND--Entry point for two word global EA calculation on the
+;	second pointer word.  Entered with READ BP2 on the second pointer
+;	word.
+;	Both entries return to GUDSIZ testing the sign of FE-SC-1.
+;	[340] This code has been desubroutinized for now, since it
+;	must be called from an odd address.
+;	WARNING:  two of the words below (DPEA+1, DEAIND+5) cannot
+;	have their parity generated by the assembler.  Since the SKIP
+;	field is already busy, we use the MQ field and set MQ/SH when
+;	we need to generate parity.
+;
+=1100
+DPEA:	GEN AR,BYTE RPW,GEN FE-SC-1,	;No index, no indirect. Load byte
+		SKP SCAD0,J/GUDSIZ	; word, test word underflow
+	GEN AR+XR,INDEXED,BYTE RPW,	;Index, no indirect. Add index
+		GEN FE-SC-1,SKP SCAD0,	; register, load byte, test word
+		MQ/SH,J/GUDSIZ		; underflow, and force odd parity
+	GEN AR,BYTE INDRCT,		;No index, indirect. Start read
+		SKP INTRPT,J/DEAIND	; and test for interrupt
+	GEN AR+XR,INDEXED,BYTE INDRCT,	;Index, indirect. Add index
+		SKP INTRPT		; register, read, test interrupt
+=00
+DEAIND:	ARX_MEM,LONG EN,CALL [BYTIND]	;No interrupt. Unwind indirection
+	ARX_MEM,TAKE INTRPT		;Interrupted. Blast out sideways
+	XR,EA MOD DISP,TIME/3T,J/DPEA	;Local word at end. Decode further
+	XR,EA MOD DISP,TIME/3T		;Global end word. Indexed?
+=1110	GEN ARX,GLOBAL,BYTE RPW,	;No index. Read byte word
+		GEN FE-SC-1,SKP SCAD0,	; and test byte underflow
+		J/GUDSIZ
+	GEN ARX+XR,GLOBAL,BYTE RPW,	;Index. Add it in, read byte word,
+		GEN FE-SC-1,SKP SCAD0,	; and test byte underflow
+		J/GUDSIZ		;Can force odd parity here
+;
+;	BYTIND--Subroutine to unwind some indirection for an OWL or
+;	a TWG.  Call with current indirect word in ARX.  Return 2 if
+;	final word is local (possibly indirected), 3 if it is global.
+;	Return 0 if final word is global indirect, in which case we
+;	will dive back in again if no interrupt is pending.
+;
+BYTIND:	AR_ARX,XR,EA MOD DISP,TIME/3T	;Dispatch on global indirection
+=0011	XR,EA MOD DISP,TIME/3T,J/GLBIND	;Global indirect. Test indexing
+	RETURN3				;Global, no indirect. Done for now
+	FE_#,#/24,J/PF24		;Both bits 0 and 1 set. No good
+	RETURN2				;Local word. Let main line handle it
+;
+=1110
+GLBIND:	GEN ARX,GLOBAL,BYTE INDRCT,	;No indexing. Fetch next word in
+		SKP INTRPT,RETURN0	; loop, testing for interrupt
+	GEN ARX+XR,GLOBAL,BYTE INDRCT,	;Indexing. Add in index and do
+		SKP INTRPT,RETURN0	; similarly

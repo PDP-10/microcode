@@ -1,0 +1,282 @@
+
+KL MICROCODE RELEASE DOCUMENT -- V2.1(442)
+July 1986
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+COPYRIGHT (c) DIGITAL EQUIPMENT CORPORATION 1977,1978,
+1979,1980,1981,1982,1983,1984,1986.  ALL RIGHTS RESERVED.
+
+
+THIS SOFTWARE IS FURNISHED UNDER A LICENSE FOR USE ONLY  ON  A  SINGLE
+COMPUTER SYSTEM AND MAY BE COPIED ONLY WITH THE INCLUSION OF THE ABOVE
+COPYRIGHT NOTICE.  THIS SOFTWARE, OR ANY OTHER COPIES THEREOF, MAY NOT
+BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY OTHER PERSON EXCEPT FOR
+USE ON SUCH SYSTEM AND TO ONE  WHO  AGREES  TO  THESE  LICENSE  TERMS.
+TITLE  TO  AND  OWNERSHIP OF THE SOFTWARE SHALL AT ALL TIMES REMAIN IN
+DIGITAL.
+
+THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE  WITHOUT  NOTICE
+AND  SHOULD  NOT  BE  CONSTRUED  AS  A COMMITMENT BY DIGITAL EQUIPMENT
+CORPORATION.
+
+DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE OR  RELIABILITY  OF  ITS
+SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.
+KL MICROCODE RELEASE DOCUMENT -- V2.1(442)                      Page 2
+
+
+KL-UCODE-RELEASE.DOC -- V2.1(442)
+July 1986
+
+
+
+
+
+
+
+
+
+1.0  SUMMARY
+
+
+     1.  Microcode version 2.1(442) is the thirteenth release  of  the
+         KL10   microcode.   Microcode  version  2.1(442)  appears  as
+         KLX.MCB only.  It supports a model B KL10 with or without  an
+         MCA25 for TOPS-10 V7.03 and TOPS-20 V6.1 only.
+
+         This is  the  eighth  release  of  the  KL10  microcode  that
+         supports   an  'Extended  KL10'  described  in  the  Hardware
+         Reference Manual.  Only KLX.RAM supports the 'Extended KL10.'
+         (KLX.MCB  is  derived  from  KLX.RAM  and  does  support  the
+         'Extended KL10.')
+
+     2.  The KL10 microcode is  not  dependent  on  any  monitor,  but
+         because  of  hardware  differences  between  the  various -10
+         processors, a monitor must  be  built  specifically  for  the
+         KL10.   KL10  microcode  V2.1(442)  has  been tested with the
+         TOPS-10 V7.03 and TOPS-20 V6.1 monitors only.
+
+See LCREV for information regarding microcode requirements for various
+hardware revision levels.
+
+
+
+2.0  KNOWN DEFICIENCIES
+
+
+     None
+
+KL MICROCODE RELEASE DOCUMENT -- V2.1(442)                      Page 3
+
+
+3.0  ADDITIONAL INSTRUCTIONS
+
+
+Specification for PMOVE and PMOVEM Instructions:
+
+     This describes the format and operation  of  the  new  PMOVE  and
+PMOVEM instructions.  The instruction format is shown below:
+
+ PMOVE
+ +-------------------------------------------------------------------------+
+ ! 0  5  2  |   A   | I |  X  |                     Y                      !
+ +-------------------------------------------------------------------------+
+ 0         8 9    12  13 14 17 18                                         35
+
+ PMOVEM
+ +-------------------------------------------------------------------------+
+ ! 0  5  3  |   A   | I |  X  |                     Y                      !
+ +-------------------------------------------------------------------------+
+ 0         8 9    12  13 14 17 18                                         35
+
+
+     If these instructions are executed in user mode, they are treated
+as  MUUOs.   Otherwise,  take the contents of location E as a physical
+address, and move a word from the location specified by that  physical
+address to AC (PMOVE), or from AC to that physical location (PMOVEM).
+
+     During the effective address calculation, all references will  be
+to virtual locations.  Only the contents of the effective address will
+be assumed to be a physical address.  Note that this allows references
+to any physical address to be made from any section.
+
+
+
+
+4.0  FIXED PROBLEMS
+
+The following problems have been fixed:
+
+442  29 May 86--Clean up the listing a bit in a few miscellaneous places.
+     Rewrite the SETCA group to use AR_AC0 COMP (looks more obvious than
+     the previous stuff).  Avoid the write test for HRRZM, using the last
+     remaining microword to optimize it.  This looks like the last edit
+     from QQSV.  So long, everybody.  It's been real!
+441  27 May 86--An afterthought edit.  Move DB2WD in line with CVTDBx
+     code, and use the space to make JUMPA fetch faster.  This required
+     moving the TDN dispatch block as well due to DRAM constraints.
+440  23 May 86--A final omnibus speedup edit.  Add an instruction to allow
+     TLO/TSO/TLZ/TSZ/TLC/TSC to prefetch.  Special case AOJ, AOJA, SOJ,
+     SOJA, AOS, and SOS to speed the next instruction fetch in all cases.
+     Allow JFCL 0, to take a fast path.  Make MOVES, SKIP, HLLS, and HRRS
+     all use new code that starts the instruction fetch a fair amount
+     quicker in a few cases.  Juggle the DRAM for all adjacent instructions,
+     and reconfigure the explicit CRAM addresses where necessary.
+437  22 May 86--Make MOVSO and MOVST start the I FETCH a few micro-
+     instructions later when they abort.  A page fault on the I FETCH was
+KL MICROCODE RELEASE DOCUMENT -- V2.1(442)                      Page 4
+
+
+     leaving the SR set, and resulted in random garbage ending up in AC0.
+     Merge GTST and CNV2WD into TST2WD, saving a few words and a little bit
+     of time.
+436  17 Apr 86--Back off optimization of JRSTF.  Going to user mode doesn't
+     set USER in time for the FETCH to occur on the same microinstruction.
+435  14 Apr 86--Install bit 4 of APRID as PMOVE present option bit.
+434  7 Apr 86--Edit PMOVE and PMOVEM onto proper op codes.
+433  4 Apr 86--Edit new JFFO onto proper op code.  Install prototype PMOVE
+     and PMOVEM, using op codes 100 and 101 for now.
+432  1 Apr 86--Edit new ADJSP onto proper op code.  Rewrite JFFO to isolate
+     the bit number within a group more quickly, and install it on op codes
+     100 and 101 for debugging.
+431  31 Mar 86--Rewrite ADJSP to start the I FETCH several cycles earlier
+     by not using PUSH code to set TRAP2.
+430  20 Mar 86--Start the I FETCH for IMULB, IDIVB, and friends at ST2AC+1
+     by making it use the DSHIFT code.  Eliminate the EXIT DBL macro as
+     obsolete.  Move the op code 247 dispatch in with other UUOs in
+     SKPJMP.  Knock a cycle out of SETMM and SETMB by making them go
+     directly to IFNOP and IFSTAC.  (This is pretty useless, but
+     harmless and correct.)  Make a few cosmetic edits.
+427  18 Mar 86--Install rewritten XBLT in production form, and eliminate
+     old code.  This makes the BLT file entirely new code.  Make room
+     for this by rewriting effective address decodes for EXTEND sub
+     op and for byte pointer in string instructions, making use of
+     indirection decoder used for single byte instructions.  (Note that
+     this could impact the PXCTability of EXTEND op codes, but since
+     only XBLT is supposed to be PXCTed, this should never matter.)  In
+     the process, fix bug where indirection in byte pointer calculations
+     was taking interrupt without going to CLEAN first.  Also fix bug in
+     LDB of an illegal OWG, where an LDB of an OWG with a P&S field of
+     (for example) 45 was not properly clearing the right half.  This
+     was introduced when we rewrote SETZ.
+426  13 Mar 86--Rewrite XBLT.  Implement it on opcodes 100 and 101 for
+     debugging convenience.
+425  8 Mar 86--Install optimized BLT.  Eliminate obsolete conditionals
+     BACK.BLT, BLT.PXCT, and RPW (not related) in the process.
+424  17 Feb 86--Remove IMULM and IMULB from IMULx optimization, allowing
+     IMUL and IMULI to begin their I FETCH one microinstruction earlier.
+     Fix ADJBP of a TWG with byte size zero to correctly load both
+     halves of the byte pointer (at TWGCPY+1).  Re-edit BYTSUB.MIC to
+     remove a few extraneous words that are no longer needed now that
+     the single byte instructions have been rewritten.
+423  13 Feb 86--Install upgraded ASH code. Reedit ASHC to remove code
+     used only by ASH previously.
+422  29 Jan 86--Rework speeded IDIVx code onto the proper opcodes, and
+     delete old IDIVx code.  Reedit a few instructions in that vicinity
+     to clean up the listing, and remove references to NODIVD label by
+     making those instructions do SET NO DIVIDE on their own.
+421  23 Jan 86--Force the SETZ group to use HLLZ code, saving a word.
+     Make sure DMOVNM loads both halves of AC1 when it starts.
+     Implement speeded up IDIVx on opcodes 100 and 101 for easy debugging.
+420  21 Jan 86--Add logic to the integer divide instructions to enable
+     generating the maximum negative number as a quotient.  This is
+     in preparation for the IDIVx optimization.
+417  10 Jan 86--Prevent ROT from (sometimes) clobbering the next
+KL MICROCODE RELEASE DOCUMENT -- V2.1(442)                      Page 5
+
+
+     instruction in ARX on a short right rotation (the timing was
+     close, so it worked most of the time--very bad).  Costs a
+     microword (sigh).
+416  7 Dec 85--Rewrite IMULx to do what the old IMULI.OPT should have
+     done, namely, optimize IMULx of a positive by a positive when
+     we can be sure that no overflow will occur.  Costs five words,
+     only two more than the original (broken) IMULI.OPT.  Eliminate
+     that conditional as obsolete.
+415  7 Dec 85--Rewrite LSHC and ROTC (at a cost of one word), saving
+     some time, particularly on right rotates and shifts.
+414  5 Dec 85--Rewrite the JRST group, not affecting speed very much
+     but saving many microwords in the process.  Shuffle MOVMI dispatch
+     to make it identical to HRRZI, saving a bit of time.  Work on UUO
+     code to save some space.  Crack a couple of words out of JRA,
+     speeding it up (almost in spite of ourselves).  Force old EIS
+     effective address dispatch to exit to 3177 instead of 3077, releasing
+     3077 for other uses.  Knock another word out of POPJ.  Make PF24
+     go directly to PFPAR, saving a cycle for illegal indirect page
+     faults (and buying back three words in the process).  Edits 234,
+     242, and 271 appear ill conceived.  Fix ARL IND and TIME fields
+     for second counting loop in JFFO, buying a little free speed.
+     Rework dispatches for FAD/FSB/FMP/FDV, and fix FPLONG conditional,
+     saving a couple of words and making FADL/FSBL/FMPL/FDVL work when
+     the conditional is turned on.  Also twiddle definitions of EXP_SIGN
+     macros to fix a couple of conflicts.  Make FMPRI and FDVRI go to
+     same spot, as well as FDVx and FMPx, saving a couple of words.
+413  24 Sept 85--Continue the cleanup/speedup begun in 412.  Rewrite LSH
+     and ROT, spending some CRAM for speed.  Rework the DMOVxx group to
+     minimize the memory dead time for DMOVE and DMOVEM, particularly.
+     Prevent SETA from referencing memory (useless, but harmless and
+     correct).  Squeeze words out of POP and POPJ.  There are some old
+     tailings from the DMOVxx code left for use by floating point and
+     IO code; it would be nice to clean them up.
+412  12 Sept 85--Freeze work on strings and start doing cleanup and
+     speedup on other (simpler) instructions.  Move around DRAM and
+     first words of several instructions (e.g., BLT, EXTEND, XCT,
+     and several EXTEND sub ops) so that instructions don't jump around
+     from place to place so much.  Decommit obsolete conditionals WRTST,
+     XADDR, EPT540, LONG.PC, MODEL.B, KLPAGE, SMP, SHIFT.MUUO, SXCT,
+     PUSHM, EXTEND, DIAG.INST, and DBL.INT--we haven't supported one
+     side or the other of these for a long time, in some cases.
+     Rework all noops and pure skips to use the same code as TRN and
+     TRNA.  Make TRO, TDO, TRC, TDC, TRZ, and TDZ use the equivalent
+     boolean code.  Make SETAM and SETAB equivalent to MOVEM.  Save a
+     cycle in MOVN by having it exit directly without going through MOVE.
+     All of this involves moving some code around in a few cases.  Clean
+     up the listings a bit.
+411  24 July 85--Another try at the SMP fix.  PI cycle 7 must go to
+     memory for interlock to work, so delete use of the cache on the
+     PHYS REF.  This may have performance drawbacks for TOPS-20 and
+     TOPS-10 uniprocessor, so there may have to be two versions of
+     microcode (again!) to resolve this.
+410  11 July 85--Force PI functions 3 and 7 to use RPW cycles, so
+     SMP will work properly.  Save a couple words in the process.
+
+KL MICROCODE RELEASE DOCUMENT -- V2.1(442)                      Page 6
+
+
+5.0  RELATED DOCUMENTATION
+
+
+THE MICROCODE IS IMPLICITLY DOCUMENTED IN THE SYSTEM REFERENCE MANUAL,
+IN  THAT  IT  IS  AN  IMPLEMENTATION  OF  A  PDP-10.   THE  ONLY OTHER
+DOCUMENTATION IS IN THE LISTING AND PRINTS OF THE KL10 PROCESSOR.
+
+
+
+[End of E442RD.RND]

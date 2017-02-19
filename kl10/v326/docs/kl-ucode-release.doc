@@ -1,0 +1,244 @@
+
+
+
+KL MICROCODE RELEASE DOCUMENT -- V326
+September 1983
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Copyright (C)1977,1978,1979,1980,1981,1982,1983,1984
+Digital Equipment Corporation, Maynard, Mass.
+
+
+This software is furnished under a license for use only  on  a  single
+computer system and may be copied only with the inclusion of the above
+copyright notice.  This software, or any other copies thereof, may not
+be provided or otherwise made available to any other person except for
+use on such system and to one  who  agrees  to  these  license  terms.
+Title  to  and  ownership of the software shall at all times remain in
+DEC.
+
+The information in this software is subject to change  without  notice
+and  should  not  be  construed  as  a commitment by Digital Equipment
+Corporation.
+
+DEC assumes no responsibility  for  the  use  or  reliability  of  its
+software on equipment which is not supplied by DEC.
+KL MICROCODE RELEASE DOCUMENT -- V326                           Page 2
+
+
+V326RG.DOC -- v326
+September 1983
+
+
+
+
+
+
+
+
+
+1.0  SUMMARY
+
+
+     1.  Microcode version 326  is  the  tenth  release  of  the  KL10
+         microcode.   Microcode  version  326 appears as KLX.MCB only.
+         It supports a model B KL10 for TOPS-20 V5.1 or earlier only.
+
+         This is the fifth release of the KL10 microcode that supports
+         an  'Extended  KL10'  described  in  the  Hardware  Reference
+         Manual.  Only KLX.RAM supports the 'Extended KL10'.  (KLX.MCB
+         is  derived  from  KLX.RAM  and  does  support  the 'Extended
+         KL10'.)
+
+         The KL10 microcode  is  different  for  TOPS-10  and  TOPS-20
+         systems.   The  KL10  microcode  is different for model A and
+         model B  processors.   (What  engineering  calls  a  model  B
+         processor  is  sometimes  known  as  a  KL10-PV.) The TOPS-10
+         microcode for model A processors is called U.RAM, for model B
+         processors  it  is UB.RAM.  The TOPS-20 microcode for model A
+         processors is called KLL.RAM, for model B  processors  it  is
+         called  KLX.RAM.   The  PDP-11  front  end requires different
+         formats of the microcode files.  These translated files  have
+         different names.  TOPS-10 model A:  UA.MCB.  TOPS-10 model B:
+         UB.MCB.   TOPS-20  model  A:   KLA.MCB.   TOPS-20  model   B:
+         KLX.MCB.
+
+     2.  The KL10 microcode is  not  dependent  on  any  monitor,  but
+         because  of  hardware  differences  between  the  various -10
+         processors, a monitor must  be  built  specifically  for  the
+         KL10.   KL10  microcode  version 326 has been tested with the
+         TOPS-20 release 5.1 monitor.
+
+See LCREV for information regarding microcode requirements for various
+hardware revision levels.
+
+
+
+2.0  KNOWN DEFICIENCIES
+
+
+     When executing a CVTBDO using a One Word Global Byte Pointer  the
+fill is taken from E0 rather than E0+1.
+
+KL MICROCODE RELEASE DOCUMENT -- V326                           Page 3
+
+
+3.0  FIXED PROBLEMS
+
+The following problems have been fixed:
+
+326  Change VMA restoration in INC2WD and CNV2WD (See edits 320 and 307)
+     to use RSTR VMA_MQ in order to keep the global sense of the
+     reference. This was causing ILDBs of OWGs in shadow memory to
+     save the incremented byte pointer in the ACs instead of memory.
+325  Add VMA/LOAD to local indexed EA computation for EXTEND E1 to make
+     it read the section number from VMA instead of PCS (!) if the index
+     is section local.
+324  Force the XADDR conditional to use RPW type references for DPB and
+     IDPB if the SMP conditional is on, even if one word globals are not
+     active.
+323  Add missing constraint near NOT.WR, accidentally broken by 322.
+322  Generate the A(cessible) bit in a page fail word caused by a read
+     violation if the page is otherwise accessible and if no CST is present.
+     This could be fixed for the CST present case as well, but has been
+     deferred since we are tight on space and no one seems to need it
+     anyway.
+321  Prevent statistics microcode from losing traps by forcing NICOND
+     dispatch 11 to ignore the statistics and take the trap.
+320  Restore the VMA again in INC2WD (broken by 307), since the state
+     register bits may have changed in the interim.  This was causing
+     PXCT to do surprising things (mostly bad).
+317  Originally, this was an attempt to uncount multiply counted op
+     codes which resulted from interrupts during long instructions.
+     That project has been shelved for now.  Instead, the second
+     NICOND dispatch during op code counting has had its final constraint
+     fixed.
+316  Make counting only version compatible with time and counting by making
+     counting only version use TRX2 and TRX3, removing physical contiguity
+     requirement.
+315  Op code counting lives again!  The setup code activated by DATAO PI
+     was attempting to write the TRX registers with data fresh from memory,
+     resulting in parity checks when it was used (see edit 73, for example).
+     Juggle code to overlap next address calculation with parity wait.
+314  Add CST.WRITE conditional to facilitate assembly of microcode
+     without the CST writable bit (see edit 303).
+313  Put TIME/3T on XFERW, as the assembler was getting the wrong
+     value with both AR_MEM and ARX_MEM macros present.
+312  Fix definition of BYTE RPW to include a write test.  This was
+     causing the SMP version of DPB to hang when memory was readable
+     but not writable.
+311  Make all IOP function 7 style of references look in the cache.
+310  Improve the fix in 307 to save the computed E0+1 in FILL during
+     OWGBP conversion and to restore the VMA from there when done.
+     Also, make sure that the VMA is initialized to PC for all cases
+     when doing effective address calculations for two word globals
+     in string instructions.  307 was not enough to clean up the
+     CMPSx fill problem, since VMA HELD was never loaded.
+     Force EXT2WD to prereference AC4 and AC5 so that glitch discovered
+     for second edit 210 will not be activated.
+307  Restore VMA from MQ at end of CNV2WD (and remove it from INC2WD,
+     saving a word in the process).  This was causing CMPSx to load
+KL MICROCODE RELEASE DOCUMENT -- V326                           Page 4
+
+
+     a random fill word and MOVSLJ to store to a random place when the
+     source length was zero if one word globals were in use.
+     Force page fail code to look for ARX as well as AR parity errors
+     (now possible with BYTE RPW implemented).
+     Make sign extension of E1 go to right place in EXTEND decoding of
+     offset instructions (broken in 301).
+306  Add University of Essex code to statistics (TRACKS) code to make
+     it work with address break enabled.
+305  Fix CST write bit logic to not test bit 18 when reading.
+304  Switch byte read interlock from LDB to DPB (broken in 303).
+303  Implement bit 18 of a CST entry as a write enable bit in addition
+     to all the other write enable functions.
+     Knock one cycle out of byte deposit where the byte is being
+     deposited into the high order byte of a word.
+     Implement the SMP conditional for extended addressing by
+     replicating all the byte effective address calculation code for
+     DPB.  This is unfortunate, but necessary due to the huge dispatch
+     table that ends this subroutine.
+302  Move XFERW out of EIS (which no longer absolutely requires it
+     in line) into SKPJMP (more in the heart of things).  Also
+     juggle comment lines and code layout to reduce the listing
+     size a bit and to force some of the .TOC lines into the table
+     of contents (even though the code nearby may be suppressed).
+301  Fix ADJBP so that instructions which occur at the last word on
+     a page do not cause a page failure of some random type (one cycle
+     too many between I FETCH and NICOND).
+     Fix effective address calculation for EXTEND so that only offset
+     instructions (and not GSNGL, for example) will have E1 sign
+     smeared.
+     Implement XJRST.  Also force JSP and JSR to do full 30 bit
+     effective address calculations.
+300  ADD LOAD OF VMA FROM PC IN PUTDST TO GET THE SECTION ADDRESS
+     CORRECT ON THE STRING INSTRUCTIONS.
+277  Add EA CALC table for SMP configurations of extended addressing
+     for TOPS-10.  (TOPS-20 paging)
+276  Force global EA CALC for EXTEND instructions in PUTDST.
+
+
+
+4.0  RELATED DOCUMENTATION
+
+
+The microcode is implicitly documented in the System Reference Manual,
+in  that  it  is  an  implementation  of  a  PDP-10.   The  only other
+documentation is in the listing and prints of the KL10 processor.
+
+
+
+KL MICROCODE RELEASE DOCUMENT -- V326                           Page 5
+
+
+5.0  FUNCTION OF THE DIFFERENT MICROCODE VERSIONS.
+
+
+U.RAM is the microprogram which directs  the  operation  of  the  KL10
+model  A  hardware  to  emulate the behavior of a PDP-10 for a TOPS-10
+system.  UB.RAM is the microprogram which directs the operation of the
+KL10  model  B  hardware (KL10-PV) to emulate the behavior of a PDP-10
+for a TOPS-10 system.  UB.RAM should look exactly like U.RAM to PDP-10
+software.
+
+
+
+KLL.RAM is the microprogram which directs the operation  of  the  KL10
+model  A  hardware  to  emulate the behavior of a PDP-10 for a TOPS-20
+system.  KLX.RAM is the microprogram which directs  the  operation  of
+the  KL10  model  B hardware to emulate the behavior of a PDP-10 for a
+TOPS-20 system.  KLX.RAM implements the 'Extended KL10'  explained  in
+the Hardware Reference Manual.
+
+
+
+[End of UCODE.RND]

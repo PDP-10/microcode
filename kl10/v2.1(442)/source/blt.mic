@@ -1,0 +1,228 @@
+.TOC	"BLT - Neatly Optimized"
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;									;
+;	This implementation of BLT is a complete rewrite of the		;
+;	instruction.  BLT has been substantially optimized by splitting	;
+;	the copy loops into three separate loops:  one for PXCT (which	;
+;	supports only in section copying, and is clean only in section	;
+;	zero or one), one for spraying a single word through a block	;
+;	of memory, and one for all other cases (usually normal block	;
+;	copies).  In all of these cases we attempt to keep the Mbox	;
+;	busy as much as possible by starting each load on the same	;
+;	microinstruction that completes the previous store, thus	;
+;	eliminating a fair amount of Mbox dead time.  (Stores cannot	;
+;	be similarly overlapped, due to the need to wait for the 	;
+;	parity check on each load.)  We also avoid the overhead of	;
+;	needless state register switching in the non PXCT cases.	;
+;									;
+;	This code gives up on the backwards BLT idea entirely, since	;
+;	that broke many useful programs.				;
+;									;
+;						--QQSV			;
+;									;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+	.DCODE
+251:	EA,		J/BLT		;BLT--adjoins EXCH
+	.UCODE
+
+311:					;[440] Near EXCH
+BLT:	BR/AR,ARL_ARL,ARR_AC0,ARX/AD	;Generate initial dest address
+=0	BRX/ARX,MQ_AR,AR_AR-BR,ARX/AD,	;MQ_current dest address.  Get copy
+	    SC_#,#/18.,CALL [REPLIC]	; count-1; set up for source grab
+	BR/AR,AR_SHIFT,ARX_ARX+1 (AD),	;Get source address half, and
+	    GEN CRY18,SR_BLT(AC)	; bump both AC halves
+	AR_ARX-BR,GEN CRY18,ARX_AR	;Finish AC; keep initial source
+	AC0_AR,ARL_MQL,ARR_ARX		;Set AC; gen complete source addr
+	BR/AR,SKP P!S XCT		;MQ_source addr; test PXCT
+;
+;	We are now just about set up.  BR will contain the current source
+;	address; MQ will contain the current destination address.  ARX will
+;	have -(count-1) of words remaining to be copied; it is incremented
+;	each time a word is copied.  Thus, the copy terminates one word
+;	AFTER ARX becomes positive (this makes sure that we always copy at
+;	least one word).  BRX will contain a copy of ARX that is used only
+;	if the instruction must quit prematurely; it is updated each time
+;	a store completes.
+;
+;	Now figure out which loop to use.  If the destination address -
+;	the source address = 1, we are spraying a word through memory.
+;
+=00	GEN BR,LOAD VMA(EA),ARX_BRX,	;Not PXCT. Read the first word
+	    CALL [XFERW]
+	AR_MQ-1,SR_BLT(PXCT SRC),J/BLTPX;PXCT. Back up dest vma, set up SR
+	GEN MQ-BR-1,SKP AD NZ		;Got word. Are we spraying memory?
+=
+=0	GEN MQ,STORE VMA(EA),J/SPRAY	;Yes. Start first store
+	GEN MQ,STORE VMA(EA),SKP AC REF	;No. Test for AC reference
+=0	SKP AC REF,J/BLTLOD		;Load from memory. Test store
+	ARX_ARX+1,SIGNS DISP,TIME/3T,	;Load from ACs. Leave SR alone and
+	    J/BLTLUP			; test for completion
+;
+=0
+BLTLOD:	SR_BLT,ARX_ARX+1,SIGNS DISP,	;All references are to memory. Allow
+	    TIME/3T,J/BLTLUP		; shadow AC reference. Test if done
+XBLTGO:	ARX_ARX+1,SIGNS DISP,TIME/3T,	;Store to ACs. Leave SR alone. Test
+	    J/BLTLUP			; completion
+;
+;	REPLIC--Subroutine to swap the ARX and the BRX, and to replicate
+;	ARR in ARL.  It just happened to be useful.  Return 1.
+;
+REPLIC:	BRX/ARX,ARX_BRX,ARL_ARR,ARR_ARR,;Swap and replicate
+	    RETURN [1]
+;
+;	The main copy loop.  The cache is as overlapped with the Ebox
+;	as possible.  (Recall that we cannot immediately store data fresh
+;	from memory; the AR_MEM forces an extra cycle of delay for parity
+;	checking.)  The SR has been used to set up the proper VMA context
+;	for shadow AC reference, so we can use the same loop even if ACs
+;	are involved.
+;
+=0
+BLSTOR:	MQ_MQ+1,VMA/AD,STORE,ARX_ARX+1,	;Increment dest VMA and count,
+	    SIGNS DISP,TIME/3T		; start store. Are we done?
+=0111
+BLTLUP:	FIN STORE,I FETCH,J/NOP		;Count expired. All done
+	FIN STORE,BRX/ARX,AR_BR+1,	;More to do. Increment source VMA,
+	    VMA/AD,LOAD AR,SKP INTRPT	; start the fetch, and test int
+=0	BR/AR,AR_MEM,J/BLSTOR		;No int. Wait for load and loop
+	AR_MEM,SR DISP,J/CLEAN		;Interrupted. Freeze BLT or XBLT
+;
+;	If we are spraying memory, we can use VMA_VMA+1 which preserves
+;	globality.  Thus it does not matter whether ACs are in use here.
+;	Indeed, once it gets started, PXCT can use this loop too.
+;
+SPRAY:	ARX_ARX+1,SIGNS DISP,TIME/3T	;Copying only one word?
+=0111
+SPRAYL:	FIN STORE,I FETCH,J/NOP		;Could be. Spray done
+	SKP INTRPT			;More to do. Test interrupt
+=0	FIN STORE,BRX/ARX,VMA_VMA+1,	;No interrupt. Proceed to next
+	    STORE,ARX_ARX+1,SIGNS DISP,	; store, increment count, and
+	    TIME/3T,J/SPRAYL		; test completion
+	MEM_AR,BRX/ARX,SR DISP,J/CLEAN	;Interrupted. Freeze and clean up
+;
+;	Finally, the PXCT case.  We will optimize spraying memory (at
+;	this writing, TOPS-10 still uses BLT to do that in some cases).
+;	Note that this can be used only for copying within a section
+;	(usually zero).  The state register must be swapped at each
+;	operation (unless we are spraying memory) to activate the proper
+;	PXCT bits.  SR bit 0 is off in order to force AC context.
+;
+=0*
+BLTPX:	MQ_AR,VMA_BR,LOAD AR,ARX_BRX,	;Set up dest addr and count, do
+	    SR_BLT(PXCT DST),CALL [XFERW];first load, and shuffle SR
+	GEN MQ-BR,SKP AD NZ		;Is this a single word spray?
+=0	VMA_MQ+1,STORE,ARX_ARX+1,	;Yes. Store first word here
+	    SIGNS DISP,TIME/3T,J/SPRAYL	; and use standard loop
+PXPUT:	MQ_MQ+1,VMA/AD,STORE,ARX_ARX+1,	;Bump dest VMA and count, start
+	    SIGNS DISP,TIME/3T		; store, and test completion
+=0111	FIN STORE,I FETCH,J/NOP		;All done. Blow out of here
+	SR_BLT(PXCT SRC)		;More to do. Do the SR shuffle
+	FIN STORE,BRX/ARX,AR_BR+1,	;Terminate store, freeze count, tick
+	    INH CRY18,VMA/AD,LOAD AR,	; source VMA, start load,
+	    SKP INTRPT			; and test for interrupt
+=0	BR/AR,AR_MEM,SR_BLT(PXCT DST),	;No interrupt. Wait for load and
+	    J/PXPUT			; swap state register
+	AR_MEM,J/BLTFIX			;Interrupt. Common fixup code
+;
+;	If we get a page fault or an interrupt in the middle of this we
+;	end up here.  The BRX keeps an accurate count of the actual
+;	transfers complete.  We must subtract one from it, and add the
+;	result to both halves of AC0.  ARX is set to -1 on the way in.
+;
+=0
+BLTPGF:	AR_ARX+BRX,CALL [REPLIC]	;Set up both halves of AR
+	AR_AR+FM[AC0],INH CRY18,J/PGFAC0;Update AC0, then fault or int
+.TOC	"XBLT--Also Neatly Modernized"
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;									;
+;	This XBLT rewrite makes use of what we learned when we up-	;
+;	graded BLT--indeed, it shares code in a couple of cases.	;
+;	Once again, we split this into separate loops, depending	;
+;	upon the copy circumstances.  If we are copying forward (the	;
+;	most common case), we distinguish the core clearing case, the	;
+;	normal copy, and PXCT that does not clear core, using the BLT	;
+;	code for the first two cases.  If we are copying backward, we	;
+;	do not attempt to optimize clearing core, and there is no need	;
+;	for a separate PXCT loop.  As a result, we have only one loop	;
+;	for that case.							;
+;									;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;
+;	The dispatch for this instruction has been rewritten so that
+;	EXTEND special cases op code 20.  As a result, we no longer
+;	need special DRAM for this instruction.  We get here with
+;
+;	ARX_AC0,SKP AD NZ		;Get copy count. Anything to do?
+;
+=0
+XBLT:	I FETCH,J/NOP			;No. This is easy
+	BRX/ARX,AR_AC1			;Yes. Fetch source address
+	BR/AR,AR_ARX,ARX_AC2,SR_XBLT(SRC);Save it, grab destination address
+	FM[T0]_AR,AR_AR+BR		;Save initial count; gen and save
+	AC1_AR,AR_ARX+BRX,MQ_ARX	;final source addr; MQ_dest address
+	AC2_AR,AR_0.M,ARX_-BRX		;Save final dest addr
+	AC0_AR,ARX_ARX+1,SIGNS DISP,	;Clear final count; set up internal
+	    TIME/3T			; count. Going forward or backward?
+=0111	ARX_BRX COMP,J/BLBACK		;Backward. Fix internal count first
+	BRX/ARX,VMA_BR,LOAD AR,		;Forward. Get first word
+	    SR_XBLT(DST)		; and switch SR
+	GEN MQ-BR-1,SKP AD NZ		;Are we spraying memory?
+=0	AR_MEM,J/XSPRAY			;Yes. Wait; then start spray
+	AR_MEM,SKP P!S XCT		;No. Is this PXCT?
+=0	VMA_MQ,STORE,STORE,J/XBLTGO	;No. Store first word and loop
+	MQ_MQ-1				;Yes. Back up to get correct start
+;
+;	The PXCT case.  As with BLT, this requires state register swapping.
+;
+XBLPX:	MQ_MQ+1,VMA/AD,STORE,ARX_ARX+1,	;Increment dest pointer, store word
+	    SIGNS DISP,TIME/3T		;Are we done yet?
+=0111	FIN STORE,I FETCH,J/NOP		;Yes. Leave now
+	SR_XBLT(SRC)			;No. Switch state register
+	FIN STORE,BRX/ARX,AR_BR+1,	;Terminate store, tick source, and
+	    VMA/AD,LOAD AR,SKP INTRPT	; start next load. Interrupted?
+=0	BR/AR,AR_MEM,SR_XBLT(DST),	;No. Wait for load and swap SR
+	    J/XBLPX
+	AR_MEM,J/XBLFIX			;Yes. Clean up, then interrupt
+;
+;	Spray a word through memory.  Get it started.
+;
+XSPRAY:	VMA_MQ,STORE,J/SPRAY		;Start spray properly for XBLT
+;
+;	Copy is going backwards.  We must spend a cycle to generate a -1
+;	(since there is no way to generate something like AR_BR-1); the
+;	extra cycle gives us time to swap the state register.  Thus there
+;	is no need for special PXCT code.  We could make a backwards
+;	memory spray run faster, but it doesn't seem worth the bother.
+;	Note that both source and destination start out at one greater
+;	than the actual first address used, so we do not need special
+;	startup code.
+;
+BACLUP:	MQ_MQ-1,VMA/AD,STORE,		;Decrement destination pointer and
+	    SIGNS DISP,TIME/3T		; store word. Are we done?
+=0111
+BLBACK:	MEM_AR,BRX/ARX,ARX_1S,		;More to do. Keep count and set to
+	    SR_XBLT(SRC),J/BACKLD	; decrement count and source addr
+	FIN STORE, I FETCH,J/NOP	;All done. Get out
+;
+BACKLD:	AR_ARX+BR,VMA/AD,LOAD AR,	;Decrement pointer, fetch next word
+	    ARX_ARX+BRX,TIME/3T,SKP INTRPT; Decrement count. Interrupted?
+=0	BR/AR,AR_MEM,SR_XBLT(DST),J/BACLUP;No. Wait; then loop on
+	AR_MEM,J/XBLFIX			;Yes. Clean up before taking it
+;
+;	XBLT freeze comes here.  If we have an interrupt, we must restore
+;	all three ACs to a usable state.  T0 tells which direction we are
+;	going (the restore count must be generated differently for each
+;	direction).
+;
+;	GEN FM[T0],SKP AD0		;Which way are we copying?
+=0
+XBLFRZ:	ARX_1S,J/FORSUB			;Forward. Must subtract one
+	AR_BRX+1			;Backward. Add one to count
+FORFRZ:	BR/AR,ARX_AR,AR_AR+FM[AC1],SR_0	;Keep count. Adjust source addr
+	ARX_ARX+FM[AC2]			;Adjust dest addr
+	AC1_AR,AR_ARX			;Restore source
+	AC2_AR,AR_-BR,J/PGFAC0		;Restore dest and count. Done
+;
+FORSUB:	AR_ARX+BRX,J/FORFRZ		;Subtract one and rejoin

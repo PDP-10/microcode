@@ -1,0 +1,95 @@
+.TOC	"BYTE GROUP -- Some Old Style Subroutines"
+;
+;	This file once included all of the byte instruction code.
+;	With the coming of the new version of the byte instructions,
+;	however, much of this stuff became unnecessary and has
+;	been eliminated as a result.  It is hoped to be able to
+;	eliminate more of this once we rewrite the string instructions.
+;	[345]
+;
+.TOC	"INCREMENT BYTE POINTER SUBROUTINE"
+
+;
+;	This subroutine is now called only by the 10/11 interface handler.
+;	Call testing sign of P-S.  [Time=2+2(BP OVFLO)]
+;	CALL WITH BP IN AR, P_P-S,SKP SCAD0.
+;
+=0
+IBPS:	STORE,RETURN4			;SIMPLE CASE
+	FE_#,#/36.,GEN AR+1,TIME/2T	;[424] POINTER OVERFLOW, B12=0
+	P_FE-S,AR_AR+1,TIME/2T,		;[424] SINGLE WORD BP
+	    STORE,RETURN4
+
+
+.TOC	"BYTE EFFECTIVE ADDRESS EVALUATOR - XADDR"
+;
+;	This code is no longer used by the single byte instructions.
+;	The string instructions get the second part of a two word pointer
+;	from an AC, and they do not set FPD.  Thus, they enter at BFETCH
+;	(for single word pointers) or BYTEI (long word pointers).  The
+;	DTE interface can only use single word pointers, and thus no longer
+;	requires the two word pointer test.  [424]
+;	In the interest of saving space, we are now using the same indirec-
+;	tion evaluation technique as the single byte instructions.  [427]
+;
+BYTEA:	MEM_AR,FE_S,SET FPD,EA MOD DISP	;[424]
+=1100					;[427]
+BFETCH:	GEN AR,BYTE READ,RETURN1
+	GEN AR+XR,INDEXED,BYTE READ,RETURN1
+	GEN AR,BYTE INDRCT,SKP INTRPT,J/BYTEI
+	GEN AR+XR,INDEXED,BYTE INDRCT,
+		SKP INTRPT
+=00					;[427]
+BYTEI:	ARX_MEM,LONG EN,CALL [BYTIND]	;[427] Unwind indirection chain
+	ARX_MEM,SR DISP,J/CLEAN		;[427] Interrupted. Clean up first
+	XR,EA MOD DISP,TIME/3T,J/BFETCH	;[427] Local at end. Untangle above
+	XR,EA MOD DISP,TIME/3T		;[427] Global at end. Indexed?
+=1110	GEN ARX,GLOBAL,BYTE READ,RETURN1;No. Read global word
+	GEN ARX+XR,GLOBAL,BYTE READ,	;Yes. Add index and do likewise
+	    RETURN1
+.TOC	"Load and Deposit Byte Subroutines"
+;
+;	Load byte subroutine.  Enter with S in FE, P+S in SC, and
+;	AR load in progress.  SKP INTRPT at entry is optional.
+;	RETURN2 WITH BYTE RIGHT JUSTIFIED IN AR. [TIME=7]
+;
+=0
+LDB1:	AR_MEM,SC_#-SC,#/36.,SKP SCAD0,	;36-(P+S)
+		TIME/3T,J/LDB2
+	AR_MEM,SR DISP,J/CLEAN		;HERE IF INTERRUPT PENDING
+
+=0
+LDB2:	ARX_SHIFT,AR_0S,SC_FE,J/SHIFT	;BYTE IN ARX HI, READY TO SHIFT
+	ARX_AR,AR_0S,			;P+S > 36, PUT BYTE IN ARX HI
+		SC_FE+SC,SKP SCAD0	;ADJUST S AND SHIFT BYTE
+
+;PUT BYTE INTO AR RIGHT-JUSTIFIED
+; THIS INSTRUCTION ALSO CALLED ALONE AS A SUBROUTINE
+
+=0
+SHIFT:	AR_SHIFT,RETURN2		;RETURN WITH BYTE IN AR
+	RETURN2				;BYTE WAS OFF THE END, RETURN AR=0
+;
+;	Deposit byte subroutine.  Enter with byte right justified in AR,
+;	pointer in BR, S in FE, 36-P in SC, and LOAD AR-ARX in progress.
+;	Skip if P > 36.  Return3 with final store going.  [TIME=11]
+;
+=0
+DPB1:	MQ_AR,AR_MEM,ARX_MEM,GEN FE-SC-1,;[303] Keep byte, get data word.
+	    SKP SCAD0,TIME/3T,J/DPB2	; Is P+S <= 36?
+	AR_MEM,RETURN3			;[226]P>36, STORE NOTHING
+;
+=0
+DPB2:	FE_SC				;P+S>36, S_36-P
+	ARX_SHIFT,AR_MQ,SC_FE,		;ARX HAS P,X,S
+		FE_#-SC,#/72.		;SC_S, FE_72-(36-P)=36+P
+	SC_#-SC,#/36.			;SC_36-S (KNOWN .LE. P)
+	AR_SHIFT,ARX_SHIFT,		;S,P,X
+		SC_FE-SC		;SC_(36+P)-(36-S)=P+S
+	AR_SHIFT,STORE,RETURN3		;[335][345] DONE, STORE IT BACK
+
+;SUBROUTINE TO GET CONTENTS OF SC RIGHT ALIGNED IN AR
+;[TIME=6]
+
+GETSC:	AR0-8_SC			;PUT SC INTO AR
+	ARX_AR,SC_#,#/9.,J/SHIFT	;HERE WITH DATA IN AR0-8

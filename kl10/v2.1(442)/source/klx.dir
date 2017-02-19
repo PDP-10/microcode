@@ -1,0 +1,43 @@
+
+  Read Density:1600  Parity:Odd  9-Track  Write enabled  REELID:MCRD
+
+  BACKUP reel number 1; start save set: 
+    by version 5(614) at 10:18:01 on  1-Aug-86
+    written on MTA260: on S/N 1026 at 1600 9-track
+    under TOPS-10 system 703A(31320): RN301A DEC10 Development
+
+KLX	DIR     3  <***>   616214  16-Jul-86
+ARITH	MIC    24  <***>   530762  19-Mar-86
+BASIC	MIC    41  <***>   003431  29-May-86
+BLT	MIC    17  <***>   201447  23-May-86
+BYTE	MIC    42  <***>   505745  14-Mar-86
+BYTSUB	MIC     6  <***>   006705  22-May-86
+CONVRT	EXE    32  <***>   207437   2-Feb-77	(11)
+DEFINE	MIC    61  <***>   664700  23-May-86
+EDHIS	MIC   111  <***>   046757  29-May-86
+EIS	MIC    56  <***>   354346  27-May-86
+EXTEXP	MIC    43  <***>   545662   8-Feb-86
+FP	MIC    34  <***>   347522   8-Feb-86
+IO	MIC    61  <***>   643554  17-Mar-86
+KLX	CCL     1  <***>   666574   8-Feb-86
+KLX	DOC    20  <***>   524205  23-Jul-86
+KLX	MCB    55  <***>   777703  29-May-86
+KLX	MCR  1287  <***>   337612  29-May-86
+KLX	MIC     1  <***>   704640   8-Mar-86
+KLX	RAM    68  <***>   772021  29-May-86
+MACRO	MIC    73  <***>   222522  29-May-86
+MICRO	EXE    96  <***>   554223  29-Feb-84	34(270)
+MICRO	MAC   201  <***>   156145  31-Aug-78
+REL10	CTL     1  <***>   457206  10-Jul-86
+REL20	CTL     2  <***>   560442   3-Jun-86
+SHIFT	MIC    13  <***>   264246   3-Apr-86
+SKPJMP	MIC    35  <***>   321017  29-May-86
+STATS	MIC    16  <***>   454112   8-Apr-86
+C	UNV   110  <***>   531231  30-Jan-84
+  Total of 2510 blocks in 28 files Checksum = 332414
+
+  BACKUP reel number 1; end save set: 
+    by version 5(614) at 10:18:15 on  1-Aug-86
+    written on MTA260: on S/N 1026 at 1600 9-track
+    under TOPS-10 system 703A(31320): RN301A DEC10 Development
+

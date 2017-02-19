@@ -1,0 +1,687 @@
+.TOC	"GFLT DOUBLE PRECISION ARITHMETIC"
+
+.IF/MODEL.B
+.IF/EXTEXP
+
+	.DCODE
+102:	R,	B/0,	J/EDFLOT	;EFAD
+103:	R,	B/2,	J/EDFLOT	;EFSB
+106:	R,	B/4,	J/EDFLOT	;EFMP
+107:	R,	B/6,	J/EDFLOT	;EFDV
+	.UCODE
+
+=0****00**0*
+EDFLOT:	VMA_VMA+1, LOAD ARX,
+		MQ_0.S, CALL [XFERW]
+	FM[E0]_AR, ARX_ARX*2, B DISP	;mem high to E0, do instruction
+=
+
+=000
+EDFL1:	SKP AR0, CALL [ISOEXP]		;save mem high word in E0.
+	FM[T2]_AR, J/EF1		;save mem exp in T2.
+	AR_-AR LONG			;subtract now same as add.
+	FM[E0]_AR, J/EDFL1		;save "positive" exponent
+=100	SKP AR0, CALL [ISOEXP]		;isolate mem exp in AR.
+	BR/AR, GEN ARX, SKP AD NE,	;start test for sticky bits.
+		J/EFMP
+=110	BR/AR, GEN AR, SKP AD0, 	;save mem high in br.
+		CALL [ISOEXP]		;get mem exp
+	FM[T2]_AR, AR_0S, J/EFDV0	;save mem exp in T2. No sticky bits.
+=0
+EF1:	AR_AC0, SKP AD0, CALL [ISOEXP]	;get AC op
+	FM[E1]_AR, BR/AR		;save AC exp in E1
+		
+;Now have positive mem exponent in T2, pos AC exp in E1.
+;Save larger exp in T2 and exp diff if less than 340 in SC.
+	[AR]_[AR]*FM[T2], AD/A-B,	;AR gets exp diff.
+		SKP AD0			;AR get exp diff, BRX gets exp.
+=00	SC_#, #/3, CALL [EXPDIF]	;test for exp diff >72.
+	BR/AR, J/EF3A			;mem op larger.
+	AR_BR, J/EF5			;restore exp to AR.
+	[AR]_FM[E1], CLR FE, J/ACNORM	;exp diff too large, norm AC op.
+=00
+EF3A:	AR_-BR, SC_#, #/3, CALL [EXPDIF];mem larger, get positive diff.
+=10	AR_BR, J/EF3B			;restore exponent to AR.
+	[AR]_FM[T2], CLR FE, J/MEMNRM	;exp diff > 72. norm mem op.
+EF3B:	AR_AR*8				;move exp difference into AR0-8.
+	FE_AR0-8,			;mem larger, op doable.
+		AR_AC0			;save smaller AC op in T0,T1
+=0	FM[T0]_AR, CALL [EF5B]
+	FM[T1]_AR
+	[AR]_FM[E0]			;save larger mem op in AC0,AC1
+	AC0_AR, AR_ARX
+	AC1_AR, J/EF5A			;all set to shift and add.
+
+EF5:	AR_AR*8				;move exp difference into AR0-8.
+	FE_AR0-8, [AR]_FM[E0]		;smaller mem op to T0,T1
+	FM[T0]_AR, AR_ARX
+=0	FM[T1]_AR, CALL [EF5B]
+	AC1_AR				;we expect AC1*2 to be saved.
+	[AR]_FM[E1]			;save larger AC exp in T2
+	FM[T2]_AR, J/EF5A
+
+EF5B:	AR_AC1*2, RETURN1
+
+;EXPDIF determines if the exponent difference is too large-ie >110 oct.
+;The largest allowed value for shifting is 72 decimal. This is 110 octal.
+;Since the exponent is in AR1-11, 110 octal has the value 11 in AR1-8.
+;It expects the exponent difference in AR0-8.
+;It uses AR0-8 and the BR.
+;Returns 2 if the difference is ok (<=110).
+;Returns 3 if the difference is too large (>110).
+EXPDIF:	BR/AR, CLR AR			;zero all of those bits.
+	AR0-8_#, #/10			;put in 100 in AR0-11.
+	GEN AR-BR, SKP AD0, RETURN2	;<max diff>-<actual diff>
+
+;We now have:
+; AC0	/ larger op high
+; AC1	/ larger op low
+; T0	/ smaller op high
+; T1	/ smaller op low
+; T2	/ larger exponent
+; FE	/ exp difference
+;We must now sign extend both high ops.
+=0
+EF5A:	AR_AC0, SKP AD0, CALL [SGNEXT]	;get larger high op
+	AC0_AR				;save larger extended op in AC0
+=0	[AR]_FM[T0], SKP AD0,		;get smaller high op
+		CALL [SGNEXT]		; and sign extend into AR1-11.
+	FM[T0]_AR			;save smaller extended op in T0
+;We are now set to shift the smaller op to align it with the larger op.
+	[AR]_FM[T1]
+	[AR]_FM[T0], ARX_AR, SC_FE	;move diff to SC for next line.
+	SC_#-SC, #/36., SKP SCAD0
+=0	ARX_AR, AR_SIGN, J/EF10		;FE < 37.
+	BR/AR, BRX/ARX, SC_FE
+	AR_SIGN, ARX_AR
+	SC_#-SC, #/72.
+	ARX_SHIFT			;high is sign, low is sign,,high.
+=01	AR_BR LONG, BR/AR, BRX/ARX,	;save new stuff in BR long.
+		CALL [EF12]		;MQ gets lowest word.
+	FM[E1]_AR			;save sticky bits.
+	AR_AC1, J/EF11			;now prepare to add.
+EF10:	AR_SHIFT, [ARX]_FM[T1]		;shift high op, load low word.
+	BR/AR, [AR]_FM[T0]		;shift low op, load high word.
+	AR_ARX (AD), ARX_SHIFT		;get shifted low word into ARX.
+=01	BRX/ARX, CLR ARX, CALL [EF12]	;save low word, shift end bits.
+	FM[E1]_AR			;save sticky bits. (word 4 of sum).
+	AR_AC1, J/EF11			;prepare to add.
+	BR/AR, BRX/ARX, AR_AC1		;get larger op in AR,ARX
+EF11:	ARX_AR, AR_AC0, FE_#, #/0	;smaller op in BR,BRX
+	AR_AR+BR, ARX/ADX, SC_#, #/3,	;operation done, now normalize.
+		NORM, J/ENORM
+
+EF12:	MQ_SHIFT, AR_ARX (AD), CLR ARX,J/SHIFT
+.IF/GFTCNV		;[273]
+EF12A:	AR_SHIFT, RETURN10
+.ENDIF/GFTCNV		;[273]
+.TOC	"GFLT MULTIPLY"
+=0
+EFMP:	CLR AR, J/EFMP1			;mem low op is zero, no sticky bits.
+	AR_AC1*2, SKP AD NE		;is AC low op non-zero as well ?
+=0	CLR AR				;yes, no sticky bits today.
+EFMP1:	FM[E1]_AR, AR_0S		;set sticky bits.
+	AR0-8_#, #/200			;subtract 200.
+	BR/AR, AR_BR			;swap around exp and 2000.
+	AR_AR-BR, CLR SC		;done, and SC is cleared.
+=0	BR/AR, AR_AC0, SKP AD0,		;save exp-2000 in BR.
+		CALL [ISOEXP]		;get AC high and isolate exp.
+	AR_AR+BR			;add exponents together.
+	FM[T2]_AR			;and store the sum in T2.
+=0	[AR]_FM[E0], SKP AD0,		;get mem high op sign extended.
+		CALL [SGNEXT]
+	FE_#, #/-18.			;
+	BR/AR, BRX/ARX, AR_AC1		;move mem ops to BR!BRX.
+=000	MQ_AR, AR_0S, ARX_0S,		;multiply by low word.
+		CALL [MULREE]
+=100	AR_AR+BR LONG			;low sign was set, add results.
+=110	MQ_AR, AR_AC0, FE_#, #/-13.,	;now continue with high part.
+		SKP AD0, CALL [SGNEXT]	;sign extend the ac high op.
+	FM[T0]_AR			;save sign extended AC op.
+;	SKP AR0				;test sign bit to adjust FE.
+=0
+EFMPP1:	MQ_AR, AR_MQ, J/EFMPP2		;swap AR+MQ.
+	FE_FE+1, J/EFMPP1		;inc the FE if number is neg.
+=000
+EFMPP2:	AD/0S, FE_FE+1, DISP/MUL,	;now multiply by the high word.
+		MQ/MQ*.25, CALL [MULP]
+;Since our last multiply step used 2 signs bits instead of a sign bit
+;and the MSB, our answer is too low by a power of two for positive numbers
+;and too low by a power of 4 for negative numbers.
+=100	(AR+ARX+MQ)*2, J/EFMPP3		;try this correction factor.
+=101	(AR+ARX+MQ)*.25, J/EFMPP3	;shouldn't ever get here.
+=110	(AR+ARX+MQ)*2			;and this for postive numbers.
+=
+EFMPP3:	BR_AR LONG, AR_0.C, ARX_1S	;result to BR!BRX. Build mask.
+=01	SC_#, #/10.,			;load SC with shift count.
+		CALL [SHIFT]		;Now have mask of 0,,1777
+	AR_BR LONG, BR_AR LONG		;mask to BR, result TO AR!ARX.
+	MQ_MQ*BR, AD/ANDCB		;clear the last 10 MQ bits.
+	GEN AR, SC_#, #/3,		;generate NORM bits.
+		NORM, J/ENORM		;conditions set for EE norm.
+.TOC	"GFLT DIVIDE"
+EFDV0:	FM[E1]_AR			;no sticky bits on divide.
+=0	AR_BR, SKP AD0, CALL [SGNEXT]	;sign extend mem high.
+	GEN AR*AC0, AD/XOR, SKP AD0,	;determine sign of result.
+		BR_AR LONG		;mem op to BR!BRX.
+=000	AR_AC1*2, CALL [EFDV1]		;start division.
+	SR_1, AR_AC1*2, CALL [EFDV1]	;note result if negative.
+
+=011	AC1_AR, AR_MQ, ARL/AD, FE_FE+1,	;set step count to 35-2.
+		MQ_0.M, CALL [DIV+]	
+=101	AC1_AR, AR_MQ, ARL/AD, FE_FE+1,
+		MQ_0.M, CALL [DIV-]
+=111	CLR AR, CLR FE			;exp must be adjusted-
+	AR0-8_#, #/200			;  it is currently 2000 too low
+	[AR]_[AR]*FM[T2], AD/A+B	;add in the correction.
+	FM[T2]_AR			;store the corrected exp in T2.
+	AR_AC1, ARX/MQ, SC_#, #/3,	;get answer ready for norm.
+		NORM, J/ENORM
+
+=00
+EFDV1:	ARX_AR, AR_AC0, SKP AD0, FE_#,	;AC low*2 to ARX, AC high to AR.
+		#/23., CALL [EDVCHK]
+=10	SKP BR0, J/DDVSUB
+	SET FL NO DIV, J/IFNOP		;no division this time.
+
+=0
+EDVCHK:	MQ_AR, J/EDVCH1			;go to an even address.
+	AR_-AR LONG, J/EDVCHK		;make ac op positive.
+
+=0
+EDVCH1:	SKP AR0, CALL [ISOEXP]		;op saved in MQ, get exp in AR.
+	[AR]_[AR]*FM[T2], AD/A-B,	;subtract exponents.
+		SKP AD0			;did this cause an underflow ?
+=0
+	SET SR2 			;no, let SR2 denote this.
+EDVCH2:	FM[T2]_AR			;yes, save exponent in T2 for ENORM.
+
+=0
+EDVCH3:	AR_MQ, SKP AD0, CALL [SGNEXT]	;now sign extend the op.
+	SKP BR0, MQ_0.M, J/FDVCK1
+
+.TOC	"GFLT NORMALIZATION"
+;Normalization is done here.
+;	The are 8 addresses the can be reached when doing a
+;	NORM dispatch. The following table describes the
+;	dispatching and how to normalize the fraction and
+;	exponent.
+;
+;	=000	AR=0			AR is zero, check ARX,MQ
+;	=001	AR00=1			sign bit on, complement
+;	=010	MSB in AR 1-6		shf 4 rt.(a guess)
+;	=011	MSB in AR07		sht 2 rt.
+;	=100	MSB in AR08		sht 3 rt.
+;	=101	MSB in AR09		right on!
+;	=110	MSB in AR10		sht 1 lf.
+;	=111	MSB in AR 11-35		sht 4 lf.(a guess)
+;
+;The normalization routine for double precision assumes that
+;	the exponent can be found in the FE. As it goes through
+;	the normalization process, it adjusts the fraction and
+;	the FE by the correct amounts to normalize the number.
+;	In GFLT numbers, the exponent may not fit
+;	into the FE, so it has to be saved in an accumulator.
+;	However, if one assumes initially that the exponent is
+;	zero and that it is in the FE, then the same normalization
+;	algorithm can be used as in double precision numbers
+;	with the realization that at the end of the normalization
+;	process the FE contains the correction (EC)  that must be
+;	added into the saved exponent (ES)  to produce a 'bit-9'
+;	normalized number. Once this correction value is obtained,
+;	the 'bit-12' normalized exponent (EN)  is given by
+;			EN = ES + EC + 3
+
+MEMNRM:	FM[T2]_AR			;save larger exponent.
+	[AR]_FM[E0], SKP AD0, J/ACNRM1	;get high word, sign extend it
+
+ACNORM:	FM[T2]_AR			;save larger exponent.
+	AR_AC1*2, CLR FE		;get low word*2 into AR.
+	ARX_AR, AR_AC0, SKP AD0		;get high word, sign extend it.
+=0
+ACNRM1:	[AR]_[AR]*FM[EXPMSK], AD/AND,	;sign extend with 0's.
+	NORM, J/ENORM
+	[AR]_[AR]*FM[EXPMSK], AD/ORCB,	;sign extend with 1's.
+		NORM			;fall into the normalize routine.
+
+=000
+ENORM:	SKP ARX+MQ NE, SC_#, #/35.,	;AR=0,check ARX,+MQ.
+		J/ENZERO
+	BR/AR, BRX/ARX, AR_MQ COMP,	;result neg, complement.
+		SET SR3, J/ENNEG	;flag negative seen.
+	AR_AR*.25 LONG, MQ_MQ*.25,	;MSB in AR 1-6.
+		FE_FE+#, #/4, J/ENHI
+	AR_AR*.25 LONG, FE_FE+#,	;MSB in AR07.
+		#/2, J/EROUND		;
+	AR_AR*.5 LONG, FE_FE+1		;MSB in AR08.
+EROUND:	BR_AR LONG, AR+MQ_0.S,	 	;MSB in AR09, where we want it.
+		J/ERND1			;put result in BR!BRX.
+	(AR+ARX+MQ)*2, FE_FE-1,		;MSB in AR10.
+		J/EROUND
+	AR_SHIFT, FE_FE-SC		;MSB somewhere in AR 11-35.
+
+ENSHFT:	BR/AR, AR_ARX, ARX/MQ		;shift everyone.
+	MQ_SHIFT, AR_ARX (ADX), CLR ARX
+	MQ_SHIFT, ARX/MQ, AR_BR,	;go aroung again.
+		SC_#, #/10.,
+		NORM, J/ENORM
+
+ENNEG:	GEN E1, SKP AD NE		;any sticky bits left around?
+=0	AR_AR+1, SKP CRY0, J/ENNEG1	;no, 2's comp MQ.
+	MQ_AR, AR_BR COMP, ARX_BRX COMP,
+		NORM, J/ENORM		;one's complement to finish.
+=0
+ENNEG1:	MQ_AR, AR_BR COMP, ARX_BRX COMP,
+		NORM, J/ENORM		;one's complement to finish.
+	MQ_AR, AR_-BR, ARX/ADX,		;carry happened, do two's comp.
+		NORM, J/ENORM
+
+ENHI:	(AR+ARX+MQ)*.25, J/ENTRY	;go try again after setting SC.
+=0
+ENZERO:	SR_0, AR_0S, ARX_0S, J/DBLST	;result = 0, store in AC,AC+1.
+	AR_SHIFT, FE_FE-SC, J/ENSHFT	;not zero, try next 35 bits.
+
+ERND1:	ARX_2				;build rounding constant.
+	ARX_ARX*4			;gen a 10 in the ARX for rounding.
+	AR_AR+BR, ARX/ADX, NORM		;do the rounding and test norm.
+=110	AR_AR*.5 LONG, FE_FE+1		;rounding blew norm, correct it.
+
+; When we get here the number is 'bit-9' normalized
+; in the AR,ARX.  Add the FE + 3 to the exponent
+; saved in T2.
+; At this point the Extended Exponent must be put
+; into the AR after everything is shifted right 3 bits.
+; The double precision norm routine does this by:
+; EXP_FE TST, SR DISP, CLR MQ, BRX/ARX, ARX_1
+
+
+ERND2:	AR_AR*.25 LONG,		;shift everything 2 bits right.
+		MQ_MQ*.25,	;	"	"	"
+		SC_#, #/3	;add in correction to FE.
+	AR_AR*.5 LONG,		;now shift the final bit position.
+		SC_FE+SC	;total exponent correction.
+	BR/AR, BRX/ARX, CLR AR	;save answer in BR,BRX.
+	EXP_SC.MS		;get exp corr in AR.
+	ARX_AR, AR_SIGN,	;get exp into ARX 1-8.
+		SC_#,#/33.	;prepare to shift 3 places.
+	ARX_SHIFT,		;move exponent into ARX 1-11.
+		[AR]_FM[EXPMSK]	;prepare to build mask in AR.
+	AR0-8_#, #/400		;include AR00 in EXPMSK==>400077,,-1
+	AR_AR*BR, AD/AND,	;zero AR1-11 to make room for exp.
+		SC_#, #/35.
+
+; I am sure a few lines of code can be saved around here.
+
+	[AR]_FM[T2], BR/AR	;save high word in BR, load larger exp.
+	AR_BR, BR/AR		;swap around so we can add.
+	AR_ARX+BR, BR/AR,	;have final exponent, check for problems.
+		SC_#,#/0
+	SH DISP			;any exponent problems ?
+=0011	ARX_AR, SC_#, #/35.,	; no problems.
+		J/ENFNL1
+ENFNL0:	ARX_AR, SC_#, #/35.,	; no problems.
+		J/ENFNL1
+	SET FLOV,  J/EEOV	; an overflow occurred.
+		
+	SR DISP			;floating underflow - is it real ?
+=1101	;test SR2.
+	SET FXU, J/EEOV		;yes, it is a real underflow.
+	SET FLOV		;no, GFDV saw an overflow before.
+
+EEOV:	P_P AND #, #/37,	;turn off AR00.
+		J/ENFNL0
+
+ENFNL1:	AR_ARX*BR, AD/OR	;AR now has high word, BRX has low.
+	ARX_1, MQ_0.M, SR DISP	;incase negation of lower word needed.
+=10	AC0_AR, AR_SHIFT,	;store high word,
+		ARX_BRX,	;move low word to ARX.
+		I FETCH, J/STD1	;prepare to store low word and exit.
+	ARX_ARX*BRX, AD/ANDCA,	; clear rounding bit.
+		SR_0,J/CDBLST	;negate result and store double result.
+
+CDBLST:	AR_-AR LONG, J/DBLST
+
+ENTRY:	SC_#, #/3, GEN AR, NORM, J/ENORM; go normalize again.
+.TOC	"GFLT TO INTEGER CONVERSION"
+.IF/GFTCNV		;[273]
+
+;ETXIX routine is used when converting extended exponent data to
+;single/double precision integers with rounding/truncation.
+;This routine assumes that the AR/ARX contain the extended exponent
+;data. It also assumes that the maximum exponent value + 1 of either
+;36 or 70 (decimal) are already in the FE. This is the positive exponent
+;maximum; the code adjusts for the fact that a negative number can have
+;an exponent one greater than a positive number. 
+;It uses all of the registers in the EBOX and returns 4 if the
+;result is positive and returns 5 if the result is negative
+;with the AR/ARX containing the double word integer. It is the
+;responsibility of the calling routine to determine whether
+;rounding or truncation should be performed and how many words
+;to store.
+
+ETXIX:	ARX_ARX*2		;get low word*2 into ARX.
+=0	MQ_AR, SKP AR0,		; get a positive exp in AR.
+		CALL [ISOEXP]
+	CLR AR, BR/AR		;clear extraneous bits, save exp.
+	AR0-8_#, #/200		;test for positive exp.
+	GEN AR+BR, SKP AD0,	;skip on positive exponent(sum has AD0 on).
+		AR_0.M		;so exponent test has a clean register.
+=0	MEM/ARL IND, CLR/AR+ARX,;exponent must be positive.
+		RETURN4		;return to caller.
+	AR0-8_#, #/212, J/ET1	;start range check of positive exponent
+
+;At this point the exponent is in BR 1-11 and it is positive.
+;Now we must determine if it is a small enough positive number
+;to make the conversion to integer meaningful.
+ET1:	GEN AR-BR, SKP AD0	;do the exponent test.
+=0	AR_BR*4, J/ET2		;exp fits in AR0-8, now for final test!
+	SET AROV, I FETCH, J/NOP;exponent out of range.
+ET2:	AR_AR*2			;finish moving exponent into AR0-8.
+	SC_AR0-8, GEN MQ,	;exponent to SC.
+		SKP AD0		;max neg exponent is 1 gtr than max pos exp.
+=0
+ET2A:	AR_MQ, GEN FE-SC,	;shift low word into ARX00-34, caller
+		SKP SCAD0,	;put max exponent+1 in FE. range check.
+		J/ET2B
+	FE_FE+1, J/ET2A		;max neg exp is 1 gtr than max pos exp.
+=0
+ET2B:	FE_SC, J/ET3		;save exp in FE.
+	SET AROV, I FETCH, J/NOP;exponent is too large.
+ET3:	SC_#, #/12.		;prepare to map AR12 into AR00.
+
+;We now have the high word in the AR and
+;the low word*2 in the ARX. The SC has 12 (dec) to let the
+;shifter strip off the sign and exponent of the high word.
+	AR_SIGN, MQ_SHIFT	;put high 36 integer bits into MQ.
+	AR_ARX, BR/AR, CLR ARX	;generate low 36 integer bits and
+	AR_BR, ARX/MQ, MQ_SHIFT,;  put in MQ. High bits to ARX.
+		SC_FE-#, #/36.,	;check the size of the exponent.
+		SKP SCAD0	;if exp<36. then high result is sign.
+=0	GEN SC, SKP SCAD NE,	;is exponent gtr or geq to 36 ?
+		J/ET3A
+	SC_#+SC, #/37., J/ET5	;exponent less than 36.
+=0
+ET3A:	(AR+ARX+MQ)*2, J/ET3B	;must shift left 1 bit.
+	BRX/ARX, SC_#+SC, #/1,	;adjust exp, save low word in BRX.
+		J/ET4
+ET3B:	BR_AR LONG, AR_ARX,	;high and low to BR!BRX
+		SC_#, #/35.,	;get a good exponent for final shifting.
+		ARX/MQ, J/ET4A	;rest of fraction to ARX.
+ET4:	AR_ARX (AD), ARX/MQ,	;exp gtr 36. High result has integer bits.
+		MQ_SHIFT	;high result to MQ.
+	AR_MQ, ARX_SHIFT	;put integer bits into ARX.
+	BR_AR LONG, AR_ARX (AD),;now compute fraction.
+		CLR ARX		;low integer to AR, pad with zeros in ARX.
+ET4A:	AR_BR LONG, MQ_SHIFT,	;restore integer to AR!ARX, fraction to MQ.
+		SC_#, #/35.,	;low word must have bit 0 same as high.
+		SKP AD0, RET[4]	;  and return on sign of integer.
+=01
+ET5:	FM[T0]_AR, AR_ARX (AD),	;sign is high 36 bit result. Save in T0.
+		ARX/MQ,		;high 36 bits of frac to AR, low 23 to ARX.
+		MQ_SHIFT,	;low integer result to MQ.
+		CALL [SHIFT]	;high half of fraction to AR.
+
+;Now we have the high 36 bits of mantissa in AR, the low 23 bits if mantissa
+;in the ARX, the high 36 bit result (the sign bits) in T0 and the low 36 bit
+;result in the MQ. Now we compute the fraction to store.
+	BR/AR, AR_ARX, CLR ARX	;high frac to BR. Now gen low fraction bits.
+	ARX_SHIFT,		;low fraction bits to ARX.
+		SC_#, #/35.	;low word must have same sign as high.
+	GEN ARX*BR, AD/OR,	;gen composite OR of fraction into 1 word.
+		MQ_AD,		;put this funny fraction in the MQ.
+		ARX/MQ		;low integer result to ARX.
+	[AR]_FM[T0], SKP AD0,	;get high result (Sign) back in AR.
+		RET[4]		;and return to caller.
+.ENDIF/GFTCNV		;[273]
+
+;ISOEXP will isolate the exponent in an extended exponent data word.
+;It will return the positive representation of the exponent.
+;Call with AR containing high order word with "SKP AR0" to do
+;correct things with one's complemented exponent in negative numbers.
+;It returns 1 with the positive exponent in the AR.
+=0
+ISOEXP:	[AR]_[AR]*FM[EXPMSK],AD/ANDCB,RET[1] ;isolate pos exp in AR1-11.
+	[AR]_[AR]*FM[EXPMSK],AD/NOR,RET[1]   ;isolate neg exp in AR1-11.
+
+;SGNEXT will extend the sign bit of the AR into AR1-11. Call with
+;SKP AR0 so the correct actions are taken for negative numbers.
+;It will do a return 1 with either ones or zeroes in AR1-11.
+=0
+SGNEXT:	[AR]_[AR]*FM[EXPMSK], AD/AND, RET[1]  ;extend 0s into AR1-11.
+	[AR]_[AR]*FM[EXPMSK], AD/ORCB, RET[1] ;extend ones into AR1-11.
+
+;OVTEST will determine if the high order word of a double integer,
+;as stored in the AR is all sign bits, ie either it is all zeroes
+;or all ones. The call is via "GEN AR, SKP AD NE, J/OVTEST".
+;It assumes that the double integer is in the AR/ARX and the SC
+;contains 35 decimal.
+;OVTEST will store the ARX*.5 and exit if the AR is all sign bits. 
+;It will set AROV and jump to NOP if it finds some data bits.
+OVTST1:	AR_MQ, SKP AD NE		;get the sign bits from the MQ.
+=0
+OVTEST:	AR_SHIFT, I FETCH, J/OVTST2	;the high word is all zeros - ok.
+	GEN AR+1, SKP AD NE		;check to see if it is all ones.
+=0	AR_SHIFT, I FETCH, J/OVTST2 	;this is simply a negative number.
+	SET AROV, I FETCH, J/NOP	;sorry, we found some data bits.
+OVTST2:	AC0_AR, J/NOP			;finish the store.
+
+.TOC	"GFLT DATA CONVERSION INSTRUCTIONS"
+1013:
+L-XBLT:	J/LUUO
+1014:
+L-GTPI:	J/LUUO			
+1104:
+L-SFTE:	J/LUUO
+1105:
+L-GTDI:	J/LUUO
+1106:
+L-GTSI:	J/LUUO
+1107:
+L-GTDR:	J/LUUO
+1110:
+L-GTSR:	J/LUUO
+1111:
+L-DITE:	J/LUUO
+1112:
+L-SITE:	J/LUUO
+1113:
+L-EFSC:	J/LUUO
+
+.IF/XADDR
+3013:	ARX_AC2, J/XBLT		; -20-  XBLT
+.ENDIF/XADDR
+3014:	[AR]_FM[E1], J/L-GTSP	; -21-	GSNGL
+3104:	[AR]_FM[E1], J/L-EDBL	; -22-	GDBLE
+.IFNOT/GFTCNV		;[273]
+3105:	J/MUUO			; -23-	DGFIX	;[273]
+3106:	J/MUUO			; -24-	GFIX	;[273]
+3107:	J/MUUO			; -25-	DGFIXR	;[273]
+3110:	J/MUUO			; -26-	GFIXR	;[273]
+.IF/GFTCNV		;[273]
+3105:	[AR]_FM[E1], J/L-GTIN	; -23-	DGFIX
+3106:	[AR]_FM[E1], J/L-GTIN	; -24-	GFIX
+3107:	[AR]_FM[E1], J/L-GTIN	; -25-	DGFIXR
+3110:	[AR]_FM[E1], J/L-GTIN	; -26-	GFIXR
+.ENDIF/GFTCNV		;[273]
+3111:	[AR]_FM[E1], J/L-FLTR	; -27-	DGFLTR
+3112:	[AR]_FM[E1], J/L-DFLT	; -30-	GFLTR
+3113:	[AR]_FM[E1], J/L-DFSC	; -31-	GFSC
+
+L-GTSP:	VMA_AR, LOAD AR		;-21- GSNGL EDPFP TO SPFP
+	AR_MEM, MQ_0.S		;load high word into AR.
+	GEN AR, SKP AD NE	;check for zeroes.
+=0	I FETCH, J/STORAC	;high word zero, store it.
+	VMA_VMA+1		;point to mem low word.
+=0	ARX_AR, SKP AR0,	;save high word in ARX.
+		CALL [ISOEXP]	;get the excess-2000 exponent.
+	CLR AR, BR/AR		;exp to BR.
+	AR0-8_#, #/220		;largest exponent allowed is 2200.
+	GEN AR-BR-1, SKP AD0	;range check exponent.
+=0	AR0-8_#, #/157, J/L-GTS1;do lower range check now.(actually too low)
+	SET FLOV, I FETCH, J/NOP;tough
+L-GTS1:	BR/AR, AR_BR		;swap values around for next subtract.
+	GEN AR-BR, SKP AD0	;do lower range check.
+=0	BR/AR, CLR AR, J/L-GTS6	;passed. 10 bit path to do last checks.
+	SET FXU, I FETCH, J/NOP	;too low.
+L-GTS6:	AR0-8_#, #/160		;subtract 1600 to get excess 200 exp.
+	AR_BR, BR/AR		;swap around to do subtract.
+	AR_AR-BR		;got it.
+	AR_AR*8			;move excess-200 exponent over.
+	FE_AR0-8, AR_ARX,	;put some exponent in FE. High word to AR.
+		LOAD ARX	;low word to ARX.
+;This next test determines the relative size of the exponent. If the expo-
+;nent is less than 401 then it is a positive exponent and all will be well.
+;If the exponent is greater than 400 (actually 700), then the exponent is
+;really negative but bit 0 of the FE is off. To correct the sign of the
+;exponent and to prevent undeserved FXU later because of the incorrect sign
+;bit, we must examine the value of the exponent so as to always get the
+;correct sign during normalization.
+	ARX_MEM, GEN FE-#,	;undeserved FXU happens when FE00 should be
+		#/500, SKP SCAD0;set from previous subtract of 1600.
+=0	FE_FE+#, #/777,		;set FE00. Later add will clear it.
+		ARX_ARX*2,	;low word * 2.
+		J/L-GTS7	;continue.
+	FE_FE-1, ARX_ARX*2	;adjust FE so later add gets right exp.
+=0
+L-GTS7:	SKP AR0, CALL [SGNEXT]	;sign extend high word.
+	AR_AR*.25 LONG,		;prepare for normalization
+		FE_FE+#, #/6,	;adjust exponent.
+		NORM, J/SNORM	;finish up.
+
+L-EDBL:	VMA_AR, LOAD AR		;-22- GDBLE SPFP to EXTENDED EXPONENT
+	AR_MEM, CLR MQ
+	SC_EXP, ARX_AR, CLR AR	;correct the expoent, save a copy in the ARX
+	FM[E1]_AR		;no sticky bits here.
+	EXP_SC			;put the "positive" exponent back IN THE AR.
+	AR_AR*.5		;must move exponent into AR4-11
+	AR_AR*.25		;  done.
+	BR/AR, CLR AR		;exp to BR.
+	AR0-8_#, #/160		;put 1600 in the AR for exp conversion
+	AR_AR+BR, FE_#, #/-3	;convert exp, set initial exp correction
+	FM[T2]_AR, AR_ARX	;save exp for ENORM, frac to AR
+	EXP_SIGN.C, ARX_0.M	;get rid of exp, clear low word
+	GEN AR, SC_#, #/3, NORM,;normalize an extended exponent number
+		J/ENORM
+.IF/GFTCNV		;[273]
+L-GTIN:	VMA_AR, LOAD AR		;23-26. fetch high word.
+	AR_MEM, MQ_0.S,		;word in AR, init MQ.
+		VMA_VMA+1	;prepare to fetch low word.
+	GEN AR, SKP AD NE	;is high word all zeroes ?
+=0	CLR ARX, EXIT DBL	;high word zero, store zeroes.
+	LOAD ARX, B DISP	;fetch low word, call appropriate routine.
+
+=000	ARX_MEM, J/L-G23	;do GDP to DP integer, truncate.
+=010	ARX_MEM, J/L-G24	;do GDP to SP integer, truncate.
+=100	ARX_MEM, J/L-G25	;do GDP to DP integer, rounded.
+=110	ARX_MEM, J/L-G26	;do GDP to SP integer, rounded.
+=				;terminate this dispatch block.
+
+;DGFIX needs the sticky bit fix.
+=0010
+L-G23:	FE_#, #/70.,		;-23- DGFIX GDP to double integer, truncate.
+		CALL [ETXIX]	;do the conversion
+=0110	EXIT DBL		;store results.
+=0111	BR_AR LONG, AR_ARX,	;save high 2 words in BR!BRX, MSB of
+		ARX/MQ,		;fraction to AR35. Rest of fraction to ARX.
+		SC_#, #/35.,	;get fraction all together.
+		CALL [EF12A]
+=1111	GEN AR, SKP AD NE,	;any fraction bits on ?
+		MQ_0.S		;[240]CLEAR MQ00 FOR ARX_2 MACRO.
+=0	AR_BR LONG, J/ST2AC	;no, leave answer alone.
+	CLR AR, ARX_2		;yes, add 1 to integer part.
+	AR_AR+BR LONG, J/ST2AC	;store result.
+
+;GFIX needs the sticky bit fix.
+=0010
+L-G24:	FE_#, #/35.,		;-24- GFIX GDP to single integer, truncate.
+		CALL [ETXIX]	;do the conversion
+=0110
+L-GTS2:	SKP AR NE, J/OVTEST	;test for sign bits in AR and store.
+=0111	BR_AR LONG, AR_ARX,	;save in BR!BRX.
+		ARX/MQ,		;add one to integer part of negative number
+		SC_#, #/35.,	;if fraction is not zero.
+		CALL [EF12A]
+=1111	GEN AR, SKP AD NE,	;is fraction zero ?
+		MQ_0.S		;[240]CLEAR MQ00 FOR ARX_2 MACRO.
+=0	AR_BR LONG, SKP AD NE,	;yes, try to store the result.
+		J/OVTEST
+	CLR AR, ARX_2		;no, add one to integer part.
+	AR_AR+BR LONG, SKP AD NE,; do the add and test that the high
+		J/OVTEST	;word is all sign bits.
+
+=011
+L-G25:	FE_#, #/70.,		;-25- DGFIXR GDP to double integer, rounded.
+		CALL [ETXIX]	;do the conversion
+=111	BR_AR LONG, CLR AR,	;save in BR!BRX, round by adding one half
+		ARX_1,		;to result. Remember that the MSB of the
+		SC_#, #/35.	;store routine expects this.
+	AR_AR+BR LONG, AD FLAGS	;fraction is on ARX35.  Do the rounding and
+;=0	; replace SKP CRY0 with AD FLAGS. Eliminates extra word.
+	EXIT DBL		;  store the double result.
+;	SET AROV, I FETCH, J/NOP;rounding caused an overflow - too bad!
+
+=011
+L-G26:	FE_#, #/35.,		;-26- GFIXR GDP to single integer, rounded.
+		CALL [ETXIX]	;do the conversion.
+=111	BR_AR LONG, CLR AR,	;save in CR!BRX, round by adding one half
+		ARX_1,		;to result. MSB of the fraction is in ARX35.
+		SC_#, #/35.	;store routine expects this.
+	AR_AR+BR LONG, SKP AD NE,;do the rounding.
+		J/OVTEST	;figure out what, if any, to store.
+.ENDIF/GFTCNV		;[273]
+L-FLTR:	VMA_AR, LOAD AR,	;-27- DGFLTR DP INTEGER to EDPFP
+		FE_#, #/137	;inital fugde factor for exp
+	AR_MEM, MQ_0.S		;get high word into the AR.
+=0*	VMA_VMA+1, LOAD ARX,	;get the low word into the ARX,
+		BR/AR, CALL [XFERW]; and save the high word in the BR.
+=1*	ARX_ARX*2, CLR AR	;ignore the sign copy.
+	FM[E1]_AR		;no sticky bits here.
+	AR0-8_#, #/200		;ENORM expects the exponent in T2.
+	FM[T2]_AR, AR_BR,	;and save it in T2.
+		ARX/AD, MQ_ARX	;sign to AR, high to ARX, low to MQ.
+	AR_SIGN 		;
+	GEN AR, NORM, J/ENORM	;restore high word and normalize.
+
+L-DFLT:	VMA_AR, LOAD AR,	;-30- GFLTRSP INTEGER to EDPFP
+		FE_#, #/4	;initial fudge factor for exp.
+	AR_MEM, CLR MQ		;get the single precision op.
+	AR_SIGN, ARX_AR		;build a dummy high word of all sign.
+	BR/AR, CLR AR		;save sign, prepare for exponent.
+	FM[E1]_AR		;no sticky bits here.
+	AR0-8_#, #/207		;build an initial exp of 207 for ENORM
+	FM[T2]_AR, AR_BR,	;save exp for ENORM, restore sign word.
+		NORM, J/ENORM	;and normalize it.
+
+=0
+L-DFSC:	AR_AC0, BR/AR, SKP AD0,	;-31- GFSC EDPFP SCALE
+		CALL [ISOEXP]	;get the exponent into the AR.
+	BR/AR, AR_BR		;put exp in BR, scale factor to AR.
+	AR_AR SWAP, GEN AC0,	;put scale in left half of AR.
+		SKP AD NE	;is high word zero ?
+=0	AR+ARX+MQ_0.M, J/ST2AC	;yes, store zero as double result.
+	AR_SIGN, ARX_AR, SC_#,	;no, move sign and scale factor together.
+		#/34.
+	AR_SHIFT, CLR FE	;sign now in AR00, scale in AR 9-19.
+	EXP_SIGN		;scale sign is in AR00; extend it.
+	SC_#, #/8.		;move scale factor into AR 1-11 and
+	AR_SHIFT, ARX_AC1	; put the sign to left of scale factor.
+	AR_AR+BR, CLR MQ	;add exponent and scale factor.
+	SH/AR, DISP/SH0-3	;check for over and under flovs.
+=0011
+L-FSC2:	[AR]_[AR]*FM[EXPMSK],	;clear out non-exponent bits.
+		AD/ANDCB,	;and AR00 in the over or under flow case.
+		J/L-FSC3	; and continue
+=0111	[AR]_[AR]*FM[EXPMSK],	;clear out non-exponent bits.
+		AD/ANDCB,	;
+		J/L-FSC3	; and continue
+=1011	SET FLOV, J/L-FSC2	;you lose
+=1111	SET FXU, J/L-FSC2	;ditto
+
+L-FSC3:	FM[T2]_AR, ARX_ARX*2	;save new exponent fofr ENORM.
+=0	AR_AC0, SKP AD0,	;get the high word.
+		SC_#, #/3,	;for ENORM.
+		CALL [SGNEXT]	;and sign extend it for ENORM as well.
+	GEN AR, NORM, J/ENORM	;put the result back together.
+
+.ENDIF/EXTEXP
+.ENDIF/MODEL.B
