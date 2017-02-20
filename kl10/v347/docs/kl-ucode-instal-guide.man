@@ -1,0 +1,145 @@
+
+
+
+
+ -- KL MICROCODE INSTALLATION GUIDE --                      AA-AS78B-TM
+March 1984
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Copyright (C)1977,1978,1979,1980,1981,1982,1983,1984
+Digital Equipment Corporation, Maynard, Mass.
+
+
+This software is furnished under a license for use only  on  a  single
+computer system and may be copied only with the inclusion of the above
+copyright notice.  This software, or any other copies thereof, may not
+be provided or otherwise made available to any other person except for
+use on such system and to one  who  agrees  to  these  license  terms.
+Title  to  and  ownership of the software shall at all times remain in
+DEC.
+
+The information in this software is subject to change  without  notice
+and  should  not  be  construed  as  a commitment by Digital Equipment
+Corporation.
+
+DEC assumes no responsibility  for  the  use  or  reliability  of  its
+software on equipment which is not supplied by DEC.
+KL MICROCODE INSTALLATION GUIDE -- V347                         Page 2
+
+
+March 1984
+
+
+
+
+
+
+
+
+
+1.0  SUMMARY
+
+
+     The installation package for microcode V347 consists of a magtape
+and  RX0x  floppy  diskette.   The  tape  saveset  contains  3  files.
+KL-UCODE-RELEASE.DOC is  the  documentation  file  for  the  microcode
+itself.   It  contains  among other things the edit history (what bugs
+got   fixed)   of   the   microcode   since    the    last    release.
+KL-UCODE-INSTAL-GUIDE.MAN   (This   document)   is   the  installation
+instructions for microcode v347.  KL-UCODE.BWR is the file which lists
+all the known bugs in V347 microcode.
+
+
+
+2.0  ASSUMPTIONS
+
+
+     1.  The reader is familiar  with  the  installation  instructions
+         contained in Chapter 4 of the TOPS-20 KL Model B Installation
+         Guide.
+
+     2.  The system disk is DB0:.
+
+     3.  The floppy disk is in DX0:.
+
+     If drive numbers  other  than  0  are  used,  replace  0  in  the
+description with the disk drive number.
+
+
+
+3.0  INSTALLATION PROCEEDURE
+
+
+     1.  Halt  the  TOPS-20  monitor   with   your   site's   shutdown
+         proceedure.   All  further  steps  assume  that SHUT has been
+         typed to PARSER at the Front End console terminal or that the
+         system  disk  was  booted with the value of 000203 (octal) in
+         the switch  register  and  the  SWITCH  REGISTER  and  ENABLE
+         buttons are depressed.
+
+     2.  Place the floppy disk supplied with this  package  in  Floppy
+         drive 0.
+KL MICROCODE INSTALLATION GUIDE -- V347                         Page 3
+
+
+     3.  Type CTRL/\.  The prompt PAR> or PAR% should appear.
+
+     4.  Type MCR MOU (ret).  The prompt MOU> should appear.
+
+     5.  Type DX0:  (ret).  The message MOU -- MOUNT  COMPLETE  should
+         appear and then another MOU>.
+
+     6.  Type CTRL/Z and CTRL/\.   The  prompt  PAR>  or  PAR%  should
+         appear.
+
+     7.  Type MCR PIP.  The prompt PIP> should appear.
+
+     8.  Type DB0:=DX0:KLX.MCB;347.  After  about  10-15  seconds  the
+         prompt PIP> should appear.
+
+     9.  Type CTRL/Z and CTRL/\.   The  prompt  PAR>  or  PAR%  should
+         appear.
+
+    10.  Type MCR KLI.  A few lines of informational  messages  should
+         appear and then the prompt KLI>.
+
+    11.  Type NO (ret) or just (ret).
+
+    12.  After KLI has run and loaded  the  BOOT  program  the  prompt
+         BOOT>  should  appear.   KLI will have typed an informational
+         line stating that the microcode has been loaded and give  the
+         version  number.   If  the  version  is  not 347, restart the
+         installation and type YES to the first KLI prompt.  The first
+         question  after  that  is for loading of the microcode.  Type
+         YES KLX.MCB;347.  Answer all the  other  questions  that  KLI
+         askes using your site's parameters.
+
+    13.  Restart the system in the usual manner.
