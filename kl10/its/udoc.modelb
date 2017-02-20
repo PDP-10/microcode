@@ -1,0 +1,146 @@
+UCODE.DOC -- v212
+September 1978
+Copyright (C)1977
+Digital Equipment Corporation, Maynard, Mass.
+This software is furnished under a license for use only  on  a  single
+computer system and may be copied only with the inclusion of the above
+copyright notice.  This software, or any other copies thereof, may not
+be provided or otherwise made available to any other person except for
+use on such system and to one  who  agrees  to  these  license  terms.
+Title  to  and  ownership of the software shall at all times remain in
+DEC.
+The information in this software is subject to change  without  notice
+and  should  not  be  construed  as  a commitment by Digital Equipment
+Corporation.
+DEC assumes no responsibility  for  the  use  or  reliability  of  its
+software on equipment which is not supplied by DEC.  
+UCODE.DOC	Microcode documentation and cautions                  Page 2
+UCODE.DOC -- v212
+september 1978
+1.0  SUMMARY
+     1.  Microcode version 212 is the  seventh  release  of  the  KL10
+         microcode.
+         This is  the  second  release  of  the  KL10  microcode  that
+         supports   an  'Extended  KL10'  described  in  the  Hardware
+         Reference Manual.  Only KLX.RAM supports the 'Extended KL10'.
+         (KLX.MCB  is  derived  from  KLX.RAM  and  does  support  the
+         'Extended KL10'.)
+         The KL10 microcode  is  different  for  TOPS-10  and  TOPS-20
+         systems.   The  KL10  microcode  is different for model A and
+         model B  processors.   (What  engineering  calls  a  model  B
+         processor  is  sometimes  known  as  a  KL10-PV.) The TOPS-10
+         microcode for model A processors is called U.RAM, for model B
+         processors  it  is UB.RAM.  The TOPS-20 microcode for model A
+         processors is called KLL.RAM, for model B  processors  it  is
+         called  KLX.RAM.   The  PDP-11  front  end requires different
+         formats of the microcode files.  These translated files  have
+         different names.  TOPS-10 model A:  UA.MCB.  TOPS-10 model B:
+         UB.MCB.   TOPS-20  model  A:   KLA.MCB.   TOPS-20  model   B:
+         KLX.MCB.
+     2.  The KL10 microcode is  not  dependent  on  any  monitor,  but
+         because  of  hardware  differences  between  the  various -10
+         processors, a monitor must  be  built  specifically  for  the
+         KL10.   KL10  microcode  version 212 has been tested with the
+         TOPS-10 6.03A monitor and TOPS-20 release  3A  monitor.   The
+         KL10 microcode has no DATE75 dependencies.
+See LCREV for information regarding microcode requirements for various
+hardware revision levels.
+2.0  KNOWN DEFICIENCIES
+At present there are known deficiencies in microcode 212 as follows.
+UCODE.DOC	Microcode documentation and cautions                  Page 3
+     1.  DATAI portion of BLKI is done twice.  This failure  has  been
+         seen using BLKI instructions at both Non-PI and PI level, but
+         never "as an Interrupt Instruction" in 40+2*n.
+     2.  If a jump to a concealed page is performed in supervisor mode
+         the  wrong page fail code is reported.  This problem has only
+         been seen when JFCL is the first instruction in the concealed
+         page.
+     3.  CVTBDx has a bug.  The case where the  destination  field  is
+         not  long  enough to hold the converted binary number changes
+         the flag bits before giving a non-skip return.  In  the  case
+         of  a  non-skip return the flag bits, accumulators and memory
+         should be unchanged.
+     4.  CVTDBx does not set Overflow  or  Trap  1  if  the  converted
+         decimal  number  will  not  fit in a double integer.  Both of
+         these should be set.
+     5.  Translated extended instructions have a table of bytes in the
+         following form:
+          00 02!03 05!06           17!18 20!21 23!24          35
+         +------------------------------------------------------+
+         !  f  !  *  !   value       !  f  !  *  !    value     !
+         +-----+-----+---------------+-----+-----+--------------+
+         The bits marked "*" are reserved to DEC  and  must  be  zero.
+         These  bits are presently considered part of the value by the
+         microcode.  The microcode should ignore these bits.
+     6.  I/O instructions that perform EBUS functions and  then  store
+         results in memory force a global memory reference because the
+         type of reference is not remembered with the memory  address.
+         This means that a program trying to get a result in AC's will
+         not work as expected.
+     7.  PXCT OF BLT does not work as  expected.   Instead  of  making
+         global  or  local  references  based on the effective address
+         calculation it always makes global references.
+     8.  There is a path through the  microcode  that  does  not  turn
+         accounting  on  after correctly having accounting off.  Since
+         the microcode turns  accounting  on  each  time  through  the
+         instruction  loop  this causes a lag of only one instruction.
+         The case is fairly rare:  MAP restarting after the forced map
+         page fail.
+     9.  BLT does not work properly on an extended addressing machine.
+         The  case of a BLT source pointer which should wrap around in
+         Section 0 does not wrap around;  it goes to Section one.
+    10.  The Hardware Reference Manual, the microcode, and TOPS-10  do
+         not  agree  on  what  AR-ARX  parity  error  page  fail does.
+         TOPS-10 believes the bad data from the AR or ARX  is  strored
+UCODE.DOC	Microcode documentation and cautions                  Page 4
+         in  AC block 7 location 0.  The manual says that for TOPS-10,
+         if the AR has bad parity it is stored in AC0 block 7  and  if
+         the ARX has bad parity AC 1 block 7 is used.  
+         TOPS-20 and its associated microcode have the bad data stored
+         in AC 0 block 7.
+The above deficiencies apply only to  the  four  microcode  assemblies
+described in Section 1.0 of this document.  No statement or commitment
+is made concerning any other assemblies.
+The statements below are to be taken as cautions:
+Microcode version 212 has not been tested on processor revision levels
+less than 10.
+Microcode version 212 will not work correctly  on  processor  revision
+levels less than 6.
+In order to run in  greater  than  256K  of  memory  TOPS-20  requires
+microcode version 157, 203 or 212.  Microcode Versions 202 and 203 are
+the same for TOPS-20 and different for TOPS-10.  A hardware  fix  that
+is  part  of Rev.  10 is also required.  Microcode version 157, 203 or
+212 will run if the hardware fix is not installed, but,  greater  than
+256K  of memory can not be used.  (Greater than 256K always worked for
+TOPS-10 systems.)
+3.0  FIXED PROBLEMS
+The following problems have been fixed:
+Fix bug in Index calculation of E1 for extended addressing.
+FM parity error problem in KL Model B.
+Fix bug in instruction  reference  to  indirect  page  pointer.   This
+change necessiates the following restrictions.
+     1.  The Microcode will depend on Kernal programs to  not  get  in
+         page pointer loops.
+     2.  Instructions executed from the console will not work.
+     3.  PI instructions and Examine, Deposite, and Byte transfers can
+         not use indirect page pointers in their paging chain.
+UCODE.DOC	Microcode documentation and cautions                  Page 5
+4.0  RELATED DOCUMENTATION
+The microcode is implicitly documented in the System Reference Manual,
+in  that  it  is  an  implementation  of  a  PDP-10.   The  only other
+documentation is in the listing and prints of the KL10 processor.
+5.0  FUNCTION OF THE DIFFERENT MICROCODE VERSIONS.
+U.RAM is the microprogram which directs  the  operation  of  the  KL10
+model  A  hardware  to  emulate the behavior of a PDP-10 for a TOPS-10
+system.  UB.RAM is the microprogram which directs the operation of the
+KL10  model  B  hardware (KL10-PV) to emulate the behavior of a PDP-10
+for a TOPS-10 system.  UB.RAM should look exactly like U.RAM to PDP-10
+software.
+KLL.RAM is the microprogram which directs the operation  of  the  KL10
+model  A  hardware  to  emulate the behavior of a PDP-10 for a TOPS-20
+system.  KLX.RAM is the microprogram which directs  the  operation  of
+the  KL10  model  B hardware to emulate the behavior of a PDP-10 for a
+TOPS-20 system.  KLX.RAM implements the 'Extended KL10'  explained  in
+the Hardware Reference Manual.
+[End of UCODE.RND]
+   
