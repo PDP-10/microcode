@@ -1,0 +1,233 @@
+                NEW 2020 RED PACK RELEASE (VERSION 404)
+                ---------------------------------------
+     The purpose of this document is to make  you  aware  of
+the  major  changes  that have been incorporated in RED PACK
+VERSION 404.  Significant changes  have  been  made  to  the
+DIAGNOSTICS,DOCUMENTATION,UETP,and  the  biggest  change has
+been to made to the operating SYSTEM SOFTWARE.   If  you  DO
+NOT  read  the  documentation  for this RED PACK release you
+will be lost!  It is highly recommended  to  carefully  look
+over the following documents:
+1. RED20.HLP  (HOW TO BUILD A RED PACK FROM BACK UP TAPES)
+2. RED20.MEM  ( RED PACK INTERNALS )
+3. RED20.USR  ( DESCRIPTION OF HARDWARE RELIABILITY TEST SYSTEM )
+4. REDIAG.HLP ( DIAGNOSTIC HELP FILE) INCLUDING DN22 EXAMPLES
+5. REDCOM.MEM (IBM COMMUNICATIONS INFORMATION - DN22, DUP11, KMC ,IBMCON)
+              (REFERENCE FOR DN22 ACCEPTANCE PROCEDURES)
+6. RED20.REV  (RED PACK REVISION INFORMATION)
+7. RED20.POL  (RED PACK POLICIES AND ORDERING INFORMATION)
+DIAGNOSTIC CHANGES AND ADDITIONS  (REFERENCE REDIAG.HLP FOR EXAMPLES)
+--------------------------------
+The following NEW DIAGNOSTICS AND MICRO-CODE  are supported on RED PACK 
+VERSION 404!!
+1. DSKEC        PAGING DIAGNOSTIC
+2. DSTUA        RH11-TM02/TMO3-TU45/TU77 DIAGNOSTIC
+3. DSKCG        ADVANCED INSTRUCTION DIAGNOSTIC
+4. KS10.RAM     VERSION 117 KS10 MICRO-CODE
+5. DN22         ALL DN22 DIAGNOSTICS ARE IN THE PS:<DIAGNOSTIC>AREA
+------------------------------------------------------------------------------
+The following DIAGNOSTICS have been UPDATED from RED PACK RELEASE 303
+NOTE: NO COMMENT AFTER THE DIAGNOSTIC MEANS FIX IS NOT VISIBLE TO THE
+      USER!!
+1. DSKCF        ADVANCED INSTRUCTION DIAGNOSTIC
+2. DSCDA        CARD READER DIAGNOSTIC
+                TEST 43 WAS ADDED
+3. DSKDA        ARITHMETIC RELIABILITY
+                TIMING OUTPUT CORRECTED
+4. DSLPA        LINEPRINTER DIAGNOSTIC
+                CHANGED TO SUPPORT LP07'S AND DAVFU TESTS WERE ADDED
+5. DSMMA        MEMORY DIAGNOSTIC
+                SINGLE BIT ERRORS NOT PRINTED UNLESS SWITCH 18
+                IS SET
+6. DSMMC        FAST AC DIAGNOSTIC
+                                                      Page 2
+7. DSMMD        MEMORY DIAG
+                THIS DIAGNOSTIC CAN ONLY BE RUN IN USER MODE NOW
+8. DSLTA        TELETYPE DIAGNOSTIC
+9. DSDUA        DUP-11 DIAGNOSTIC
+10.DSDZA        DZ-11 DIAGNOSTIC
+                FIXED ECHO TESTS
+11.DSTUB        MAGTAPE RELIABILITY DIAGNOSTIC
+                THIS MAGTAPE SUPPORTS TM02/TM03-TU45/TU77 NOW
+12.DSUBA        UNIBUS ADAPTER DIAGNOSTIC
+                UBA #4 CAN BE TESTED NOW (FOR PCL20 OPTIONS ONLY!!)
+13.DSRMA        RM03 BASIC DIAGNOSTIC
+                OPERATOR INTERVENTION TESTS WERE MADE OPERATIONAL FOR THE
+                FIRST TIME
+14.DSRPA        RP06 BASIC DIAGNOSTIC
+                OPERATOR INTERVENTION TESTS WERE MADE OPERATIONAL FOR THE
+                FIRST TIME
+15.DSRMB        RM03/RP06 RELIABILITY DIAGNOSTIC 
+16.     SMCPU.CMD               SMDDT.HLP       SMFILE.*        SMFLT      
+        SMMON.*                 SMTAPE.*        SMUSR.*         SMMAG.*
+-------------------------------------------------------------------------
+DOCUMENTATION
+-------------
+Nearly all the RED PACK documentation has changed and we've added a few
+new documents to help you along with this release. READ the documentation!!
+The new documents are----
+1. RED20.HLP            INTRODUCES YOU TO THE "RED PACK" AND SHOWS HOW TO
+                        FORMAT,BUILD,AND CONFIGURE A RED PACK FROM BACK UP
+                        TAPES. THIS DOCUMENT ALSO HAS EXAMPLES OF "MIC" FILES.
+                        REFERENCE THIS DOCUMENT ON HOW TO RUN "MIC" FILES.
+2. REDIAG.HLP           SHOWS EXAMPLES OF HOW TO RUN 2020 DIAGNOSTICS. INCLUDES
+                        DN22 DIAGNOSTIC EXAMPLES.
+3. REDCOM.MEM           THIS ONE GIVES YOU INFORMATION ON THE COMMUNICATION 
+                        HARDWARE AND ALSO EXPLAINS HOW TO RUN DN22 ACCEPTANCE.
+Some new releases of some old "friends" also are contained in this release.
+Most of the changes were added to reflect TOPS20 RELEASE 4 and also changes
+were made to reflect the new "UETP" version. These documents are------------
+1. RED20.MEM            THIS REFERENCE MANUAL DESCRIBES THE RED PACK INTERNALS.
+                        MUCH WORK WAS DONE TO SUPPORT THE NEW "MIC" FILES AND
+                                                      Page 3
+                        THE NEW VERSION OF UETP. THE "MIC" FILES TAKE THE
+                        PLACE OF THE "NEWRUN" FILES ON RED 303!! THERE ARE MANY
+                        NEW CONFIGURATION FILES, SO IT IS IMPORTANT TO CAREFULLY
+                        LOOK OVER THIS DOCUMENT FOR THE CHANGES!!
+2. REDUSR.MEM           INCLUDES NEW EXAMPLES OF UETP ACCEPTANCE. NOTICE THE
+                        NEW UETP TESTS ADDED.
+3. RED20.POL            TELLS YOU ABOUT RED PACK POLICIES AND HOW TO ORDER
+                        THE RED TAPES 1,3. CHANGED TO REFLECT RED V.404
+4. RED20.REV            SHOWS VERSIONS OF THE EXEC,MONITOR, AND DIAGNOSTICS.
+                        CHANGED TO REFLECT RED V.404.
+5. KSREF.MEM            ADDED BIT TABLES FOR THE CD11 AND DUP11. ALSO ADDED A
+                        TRUTH TABLE FOR CSL EB COMMAND.
+-----------------------------------------------------------------------------
+UETP
+----
+Major changes were made to this program and new tests were added for SYSTEM
+ACCEPTANCE. Most of the changes made to "UETP.EXE" were made to make it
+compatible with TOPS20 RELEASE 4. You'll notice a big difference in the 
+speed of the magtape I/O handling due to release 4 and the UETP magtape tests
+can now be run with either a large reel of tape (2400 ft.) or a small reel
+of tape (800 ft.). Also the KMC/DUP loopback tests REALLY WORK NOW!!
+The new UETP TESTS are---------
+1. DUPA                 KMC/DUP#0 LOOPBACK TEST
+2. DUPB                 KMC/DUP#1 LOOPBACK TEST
+3. DUPAB                KMC/DUP#0,1 LOOPBACK TESTS (RUN THIS IF YOU HAVE 2 DUPS)
+4. TEST72               USED IN CONJUNCTION WITH THE OTHER LOOPBACK TESTS TO
+                        LOOPBACK THE DATA!!
+NOTE: THESE UETP TESTS REPLACE SNDER1 AND SRVER1 THAT WERE PRESENT ON RED V.303
+---
+5. LPT0                 PRINTS A "SY ALL" AND "MONITR.STS" AT THE COMPLETION
+                        OF A PASS. THIS TEST REQUIRES THAT THE LINEPRINTER
+                        REMAIN "ONLINE" DURING ACCEPTANCE. IF YOU DO GET ERRORS
+                        RUNNING THIS TEST, GO BACK AND RUN DSLPA!!
+6. DN22IN               THIS TEST IS FOR 2020 SYSTEMS THAT HAVE DN22 HARDWARE
+                        AND MODEM ELIMINATORS. THIS TEST NEEDS DN22OU TO BE
+                        RUNNING TO WORK CORRECTLY!!
+7. DN22OU               THIS TEST IS ALSO FOR 2020 SYSTEMS THAT HAVE DN22
+                                                      Page 4
+                        HARDWARE AND MODEM ELIMINATORS. THIS TEST MUST BE
+                        STARTED FOR DN22IN TO RUN!!
+KNOWN BUGS IN UETP
+------------------
+Currently there are some known "flaws" with UETP. These problems were found
+late in the testing and could not be corrected for this release. There are 2
+known bugs in UETP. They are---------
+1. ABORT ALL PROBLEM    THIS VERSION OF UETP REQUIRES THAT TWO ABORT ALL
+                        COMMANDS HAVE TO BE GIVEN SOMETIMES. IF YOU DO A
+                        ABORT ALL OR JUST AN ABORT XXX WHERE XXX IS THE
+                        NAME OF THE TEST, DEPENDING ON WHICH STATE THE JOB
+                        IS IN THAT YOUR ABORTING, THE TEST OR TESTS MIGHT
+                        START BACK UP AFTER YOU HAVE ABORTED THEM. YOU CAN
+                        SOLVE THIS BY ABORTING THE JOB AGAIN OR ABORTING
+                        ALL OF THEM AGAIN.
+2. DSRLST               WHENEVER THE UETP TESTS DUPA,DUPB,OR DUPAB ARE RUN
+                        WITH TEST72 THIS "BUGINF" MIGHT OCCUR AT THE END OF THE
+                        TEST. WITH THE TEST DUPAB, THIS "BUGINF" MIGHT OCCUR
+                        TWICE PER PASS.
+                        (DSRLST= DATA SET READY LOST)
+------------------------------------------------------------------------------
+SYSTEM SOFTWARE
+------ --------
+1. NEW MONITOR AND EXEC , MONITOR-SUPPORT PROGRAMS
+        Highest visible change: SPEED-improvement !!
+        Nearly all Support programs are now running under SYSJOB .
+        This includes:
+        LPTSPL - the Lineprinter Spooler
+        MOUNTR - the handler for TAPE and STRUCTURE mounting
+        ORION - the message processor
+        QUASAR- the spooling system manager
+        INFO - the inter-job communication handler
+        MAILER - Mail support
+        MAPPER - speedup thru mapping of common programs
+        FAL20 - Network File Access Support
+        STATUS - accumulating DISK and Tape transfer statistics
+        OPER20 - general cleanup and SYSERR-queing every day
+        CDRIVE - Card Reader support
+        SPRINT - Card  Batch handler
+        *** Beware : This is the absolute maximum of load SYSJOB can handle
+Communication and setup for all STRUCTURE , TAPE and QUEING is handled
+by OPR , running under PTYCON. So if you want to use "OPR" all you have
+to do is---------
+1. LOGIN F-S
+2. ENABLE
+3. OPR
+Now you'll see this output at the CTY.
+OPR>
+                                                      Page 5
+If you would like to see a "STATUS" of the DISK-DRIVES do this
+OPR>SHOW STATUS DISK-DRIVES
+...and wait for the output!!
+The possibilities are endless!!
+If your lineprinter for some reason gets "HUNG" it's a good idea to try 
+the following-----
+1. LOG F-S
+2. ENA
+3. OPR
+OPR>STOP PRINTER 0
+OPR>START PRINTER 0
+OPR>CONTINUE PRINTER 0
+If that doesn't work you can always speak directly to SYSJOB by the
+^eSPEAK command and talk to LPTSPL. If all else fails reload the system!!
+With release of TOPS20 VERSION 4 it is possible to have TAPE LABELING.
+The RED PACK does NOT have this function enabled. If you do happen
+to come across a system with this feature, instead of using the ASS MTA0
+command, use the "MOUNT TAPE" command. See example.
+If you want to DUMP the <f-s> area of the disk to tape try this-----
+1. LOAD A WRITE-ENABLED MAGTAPE ON A FREE TAPE DRIVE
+2. ENTER THE FOLLOWING
+   @MOUNT TAPE MT:/WRITE-ENABLED
+AT THIS POINT YOU'LL HAVE TO ISSUE A CNTRL-C
+   (YOUR REQUEST WILL REMAIN IN THE QUEUE)
+3. @ENA
+4. $OPR
+5. OPR>IDENTIFY MTA0: REQUEST X
+6. OPR>EXIT
+7. $DUMPER
+8. DUMPER>TA MT:
+9. DUMPER>REWIND
+10.DUMPER>SAVE PS:<F-S>*.*.*  PS:<F-S>*.*.*
+11.DUMPER>EXIT
+12.@DISMOUNT TAPE MT:
+To really get familiar with OPR it is advised to do a type out of the
+                                                      Page 6
+OPR help file like this---
+1. LOG F-S
+2. ENA
+3. TYPE PS:<SUBSYS>OPR.HLP
+and wait for the output!!
+KNOWN SYSTEM SOFTWARE BUGS
+--------------------------
+Currently there is one known MONITR BUG. The problem occurs when a 2020
+system has 1 KMC AND 1 DUP.
+The message
+%NETCON COULD NOT OBTAIN TOPOLOGY MAP
+will appear on the CTY at system start up!! 2020'S with 1 KMC AND 2 DUPS
+do not exhibit the problem!!
+There is also a problem in MOUNTR. If a disk-drive is online during system
+start up time with bad HOME BLOCKS it might cause a different drive with
+good HOME BLOCKS to have problems mounting. For example if you have created
+USER AND USER1 and have another drive online that has not yet been created
+into a structure(USING CHECKD), it might cause USER or USER1 to have problems
+when trying to mount those structures!! The way to get around this
+problem is to take the drive with the BAD HOMEBLOCKS offline, bring the
+system down then back up. A patch will probably be provided for this problem
+in the future!
+PATCHES TO THE MONITOR
+----------------------
+PROBLEM: Errors on TU77 tape drives can cause TM2CCI and PH2RAE BUGCHKS
+         and KEEP ALIVE errors.
+THE "RED PACK" HAS BEEN PATCHED TO FIX THE PROBLEM!!
+    
