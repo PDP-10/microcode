@@ -1,0 +1,1191 @@
+PACING 1 
+                                                DEC Marlborough
+                                                LCG Product Support
+                                                March 1980
+*************************************************************************
+The following information is very sensitive by nature . It is 
+        COMPANY CONFIDENTIAL
+and     SUBJECT to IMMEDIATE CHANGES and UPDATES
+**************************************************************************
+CONTENTS                                                                                                                      Page 2î________
+Chapter 1       RED pack organization
+Chapter 2       RED Backup tape format
+Chapter 3       Saving a RED pack on tapes for Backup
+Chapter 4       Creating a Diagnostic Magtape
+                and updating Diagnostics and m-code on disk.
+Chapter 5       Updating DIAGNOSTICS and/or MICRO-code
+Chapter 6       Using RED during Stand-alone ( Exec-mode )
+Chapter 7       Using RED in Timesharing
+Chapter 8       Useful FILES to know of
+Chapter 9       RED-PACK use for F A & T
+Chapter 10      Appendices
+Appendix A      CLEAN.MIC  for F A & T runs
+Appendix B      The UETP-System
+Chapter 11      The system file SYSJOB.RUN
+Chapter 12      The system file PTYCON.ATO
+Index
+NOTE: To build a RED PACK from back up tapes reference
+      <RED>RED20.HLP "Getting started with RED"!!
+                                                             CHAPTER 1
+                                                       RED PACK ORGANIZATION
+RED-Pack-organization                                                                                                       Page 1-2î_____________________
+The following gives the first description on how to use RED , the pack used for checkout , diagnosis  and  reliability  runs  for  a
+DEC2020 system.
+The RED pack ( Reliability Exerciser and Diagnostics for DEC2020 ) contains the following areas:
+        <SYSTEM>         .... normal + magtape boots and micro-code
+        <OPERATOR>       .. normal
+        <SUBSYS>         ..
+        <UNSUPPORTED>    ..
+        <F-S>            "WHEEL" and access to <UETP> work-area
+        <DIAGNOSTICS>    FILES ONLY area holding Diagnostics
+        <UETP>           working area for User Environmental Test Package
+        <UETP.LIB>       file-area for UETP
+        <UETP.xxx>       work area for program-runs under UETP
+        <RED>            Documentation and utilities for RED
+ Password for <F-S is F-S , the only other area with privileges is <OPERATOR , both  areas  passwords  should  be  changed  for  the
+specific installation , preferably <F-S to CCxxx , where xxx is YOUR Cost Center number.
+                                                             CHAPTER 2
+                                                       RED BACKUP TAPE FORMAT
+RED-Backup-tape-format                                                                                                      Page 2-2î______________________
+ The RED Backup-tapes come in the "standard" format:
+        File   Format   Contents
+        ____   ______   ________
+         1      COPY    M-code for 8080 read-in
+         2      COPY    MTBOOT for MONITOR-Boot
+         3      SAVE    MONITR.EXE
+         4      SAVE    EXEC.EXE
+         5      ASCII   INSTALL.CMD
+         
+         6      SAVE    MIC.EXE    
+        
+         7      ASCII   RESTORE
+         8      SAVE    DLUSER.EXE
+         9      ASCII   DLUSER.TXT  the directory-information
+        10      SAVE    DUMPER.EXE
+        11      DUMPER-SAVE SET of RED
+                                                             CHAPTER 3
+                                               SAVING A RED PACK ON TAPES FOR BACKUP
+Saving-the-world-before-it-tumbles-down-on-YOU.                                                                             Page 3-2î_______________________________________________
+After You have edited the files
+        <SYSTEM>4-CONFIG.CMD    ;insert correct TTY-speeds , LPT-RAMs VFUs
+                                ;and MTA-Serial numbers.
+        <SYSTEM>TTYINI.CMD      ;insert correct TERMINAL TYPES
+                ..... and have changed the PASSWORDS ......
+YOU might want to "save" YOURSELF the pain of doing it again , or of being
+"done in" by some "superior force".
+YOU need one scatch-tape (2400 feet ) ,  write-enabled on MTA0:, and about 15
+minutes "spare" time.
+***** Beware YOU should not have anything else running at this time , we will
+kill BATCH-JOBS and PRINT-jobs , also UETP should not be running ************
+Command                 Action
+_______                 _____________________________________________________
+LOG F-S (password)      Get logged in and get all things set up for YOU
+DO PS-SAVE.MIC MTA0:    This file will make a RED PACK back up tape
+                        on MAGTAPE UNIT 0                       
+                        and wait roughly 15 minutes , till YOU see
+                        [MICEMF -End of MIC File:<UETP.LIB>PS-SAVE.MIC.1]
+                        @KMIC                   
+NOTE: WAIT FOR THE @KMIC TO COME BACK BEFORE YOU RUN YOUR 
+      NEXT "MIC" FILE. IF @KMIC DOES NOT COME BACK AFTER
+      IT HAS FINISHED PERFORMING ITS FUNCTION ENTER "@KMIC"
+      BEFORE RUN TRY YOUR NEXT "MIC" FILE!!
+                                                             CHAPTER 4
+                                           CREATING AND/OR UPDATING A DIAGNOSTIC MAGTAPE
+Creating-a-DIAGNOSTIC-Magtape.                                                                                              Page 4-2î______________________________
+YOU also can  build YOURSELF a "spare" DIAGNOSTIC-tape!
+For this purpose YOU do the following ( blank tape ,write enabled on MTA0:)
+Commands                Action
+______________          ______________________________________________
+LOG F-S                 log into our "work-area"
+                         This file will build a Diagnostic Tape on MTA0:
+DO RED-TAPE-3.MIC MTA0:  and wait till YOU see
+                         [MICEMF - End of MIC File:  <UETP.LIB>RED-TAPE-3.MIC.1 ]                       
+                         @KMIC                          
+;offcourse this tape also doesn't have to be left flying around !!!
+                                                             CHAPTER 5
+                                               UPDATING DIAGNOSTICS AND/OR MICRO-CODE
+Updating-DIAGNOSTICS-and-m-code-from-new-DIAGNOSTIC-tape.                                                                   Page 5-2î_________________________________________________________
+Bring up Monitor and log in as F-S ( wait for Login-file to be finished )
+Mount magtape ( write-protected ) on unit 0
+Commands                Action
+________                _____________________________________
+1. DO DIAGNOSTIC-UPDATE *.*   
+                        and wait till YOU see
+                        [MICEMF - End of MIC File:  <UETP.LIB>DIAGNOSTIC-UPDATE.MIC.1  ]
+                        @KMIC                           
+Note:   When "*.*" is typed after DIAGNOSTIC-UPDATE all files that are
+        on MTA0 will be put in the system. If you wish to update just one
+        diagnostic just specify the full name of the diagnostic instead of
+        *.* . For example if you wanted to take a new version of DSLPA off
+        the tape and put it on the RED PACK enter DO DIAGNOSTIC-UPDATE DSLPA.SAV
+        and wait till you see 
+        [MICEMF - End of MIC File:  <UETP.LIB>DIAGNOSTIC-UPDATE.MIC.1  ]
+        @KMIC
+Note:   You might have to issue "Control-Q"s to get next load of SCREEN-page
+        and YOU must update m-code for the SYSTEM , in case YOU got a new
+        version of it on the tape !!!
+2. DO PS-MICRO
+Note:   In case YOU already did YOUR "FULL Backup" of RED , YOU have to
+        redo this , because YOU changed DIAGNOSTICS and/or m-code ....
+        MOUNT 2400 feet Backup-tape onto UNIT 0 and.....
+3. DO PS-SAVE.MIC MTA0:
+NOTE:To get new listings of documents etc ( in case YOU are lucky to have
+        a line-printer.... and paper ... enter
+4. DO DOCUMENTS
+                                                             CHAPTER 6
+                                             USING RED DURING STAND-ALONE ( EXEC-MODE )
+Using-RED-during-stand-alone ( also called EXEC-mode )                                                                      Page 6-2î____________________________
+Mount RED on drive 0 ( write-protected ) and take all other drives off-line !!!
+Start 8080-console by pressing "RESET"
+TYPE "BT 1" to load diagnostic monitor SMMON
+typing: D
+        SMCPU.CMD will run diagnostics as a stream
+        0
+        ( the start-adress of SMMON is  20000 ! )
+        ( all diagnostics start at 30000 ! )
+NOTE: Refer to the document REDIAG.HLP for information
+        on how to run diagnostics. 
+        
+@PRINT PS:<RED>REDIAG.HLP
+                                                             CHAPTER 7
+                                                    USING RED DURING TIMESHARING
+Using-RED-during-timesharing                                                                                                Page 7-2î____________________________
+Mount RED on drive 0 ( write-enabled )
+Start 8080-console by pressing "RESET"
+Type "BT" to load m-code and BOOT
+Type "Carriage return" to BOOT to get MONITOR
+... answer start-up questions and wait till PTYCON comes back with
+the final status-summary.
+Log in under <F-S> by typing "LOG F-S F-S" ... this password will be
+different after it has been changed!!
+        If YOU just want to run some diagnostics in TS , type
+                        SMMON
+                        D
+                        SMUSR
+                        0
+        If YOU want also to run some "real" programs for checkout , do
+the following:
+        DO CLEAN.MIC ( to clean up the areas and start UETP) 
+        ( some files cannot be deleted , they are the protected SUB-directories
+        for UETP )
+        Mount a magtape ( write-enabled ) on unit 0
+        Reference RED20.HLP on how to configure a RED PACK              
+        The CLEAN.MIC file automatically starts UETP by the RELIAB.CMD
+        this will start the jobs for a runtime of a total of 48 hours!        
+****************************************************************************
+The current  KS checkout during F A & T runs for 48 hours ( no errors ) .
+For "quick" checkout in the field a 24 hour run ( no errors ) is sufficient.
+****************************************************************************
+        If YOU want to see , where YOU are , type "STATUS"
+        If YOU want to abort everything type "ABORT ALL"
+                                             "EXIT"
+To get the full picture of UETP read Appendix B.
+                                                             CHAPTER 8
+                                                      USEFUL FILES TO KNOW OF
+Useful-files-to-know-of:                                                                                                    Page 8-2î________________________
+<DIAGNOSTICS>SMUSR.CMD is the file that runs TS-Diagnostics under SMMON
+                ( Passcount 1 )
+<DIAGNOSTICS>SMCPU.CMD is the file that runs the Standalone stream of 
+                Diagnostics . Beware: It doesn't run all of them !!!
+                Currently FAST AC Diagnostic is not included !
+<DIAGNOSTICS>SMTAPE.EXE is the DIAGNOSTIC Magtape CREATOR.
+                You can build/rebuild a diagnostic magtape by entering
+                DO RED-TAPE-3.MIC.1 MTA0:
+                ....will build DIAGNOSTIC tape on MTA0: (write enabled!!)
+<UETP.LIB>CLEAN.MIC is the file that cleans up and then starts UETP.
+<UETP.LIB>ERAZE.CMD is a file that cleans up the disk into "virgin" state
+                ( deletes DUMP-copies ,ERROR.SYS , LOG-files etc.)
+<UETP.LIB>RELIAB.CMD is the file that starts up the TS-programs to go
+                into the 48 hour F A & T test.
+<DIAGNOSTICS>SMFILE.EXE is the file that allows YOU to rebuild the
+                <SYSTEM>BOOTS.BIN file ( micro-code , BOOTs ,Diagnostic BOOT
+                System Serial Nr. ) It is used by typing
+                DO PS-MICRO.MIC.1
+<SUBSYS>OPR     This is the OPERATOR INTERFACE program. VERY useful!!
+                Talks to the jobs started under SYSJOB (LPTSPL,BATCON,etc.)!!
+                To find out more about it read <RED>BEWARE.MEM.1, and
+                <RED>OPR.HLP Get familiar with this soon!!
+<UNSUPPORTED>TRAK20 is a program giving a continous "SYSTAT" on a VT52
+                Run it by: TRAK20
+                           TRACK
+<UNSUPPORTED>KS20        allows YOU to see SYS Serial-nr, Memory status register
+                         contents , etc
+<UNSUPPORTED>IBMCON     Makes SYSERR entries for the DN22. Refer to the
+                        document <RED>REDCOM.MEM for more infomation.
+<UNSUPPORTED>KDPSTS     allows YOU to "peek" into the KMC/DUP status in case
+                        YOU have the NETWORK-tests running.
+<UNSUPPORTED>SPY allows YOU to watch TTY-I/O traffic of another job
+                (YOU get out of it via Control/C and BREAK )
+<UNSUPPORTED>STRTST is a facility for structure-testing , it handles
+                MOUNTING , DISMOUNTING , CREATING and CHECKING of structures
+<UNSUPPORTED>DIRTST is a facility to test the state of DIRECTORIES
+<UNSUPPORTED>READ allows to "read" a file and check for hard/soft errors
+<UNSUPPORTED>LPLOAD is a facility which allows to change VFU and RAM on the
+                fly ( one has ofcourse to kick off LPTSPL before doing that)
+Useful-files-to-know-of:                                                                                                    Page 8-3î________________________
+        "MIC-Files .... run by DO File-Name "
+File-Name               Function
+__________              _____________________________________________________
+ 1-MTA                  To tell UETP , that YOU have only 1 MTA ( 600 feet tape
+                        on unit 0 -write enabled )
+ 2-MTA                  Same as above , but tape on UNIT's 0 and 1
+ 3-MTA                  Same as above , but tape on UNIT's 0 , 1 and 2
+ 4-MTA                  Same as above , but tape on UNIT's 0 , 1 , 2 and 3
+ 22-CONFIG              Configures RED PACK for a DN22. *SEE NOTE!
+                        for more information!!
+ CDR                    Starts CDR spooling after reload
+ CLEAN                  Cleans up UETP directory and starts UETP via RELIAB.CMD
+ DIAGNOSTIC-UPDATE      Updates one or more diagnostics from MTA0
+ DOCUMENTS              To print KSREF.MEM,m-code and RED20.MEM on LPT
+ DUPA                   Configures RED PACK for UETP testing for 1 KMC AND DUP#0
+                        (Loopback connector required)
+ DUPB                   Configures RED PACK for UETP testing for 1 KMC AND DUP#1
+                        (Loopback connector required)
+ DUPAB                  Configures RED PACK for UETP testing for 1 KMC AND 2 DUPS
+                        (Loopback connectors required)
+ ERAZE                  Cleans up directories (used before dumping to tape)
+ LPT                    To tell UETP , that YOU have a LPT ( default )
+ MAKE-DUMP              To create <system>DUMP.EXE
+ MAKE-RED               Second stage in building RED-pack in TS
+ NO-CDR                 Prevents CDR spooling after reload
+ NO-DN22                Configures RED PACK for no DN22 (default)
+ NO-KMC                 Configures RED PACK for no KMC/DUP (default)
+ NO-LPT                 To tell UETP that YOU have no LPT
+ NO-MODEM               Edits the UETP reliab.cmd to exclude DN22 testing. Use
+                        this file if you have a DN22 but no modem eliminators
+ NO-MTA                 To tell UETP that YOU have no MTA's
+ NO-UETP                To stop UETP from coming up automatically
+ NO-VFU                 Tells system that LPT has no VFU
+ PS-MICRO               File to get m-code established for 8080 on PS-structure
+ PS-SAVE.MIC MTA0:      File to save PS onto tape on unit 0 ( nobody else running )
+ RED-MICRO              File to get m-code into 8080 area on a TS-mounted RED-pack
+ RED-TAPE-3.MIC MTA0:   File to build an DSXLA-tape from RED-pack on mta0: 
+ RED-TS-SAVE            File to save a TS-RED pack (Marlboro use only!!!)
+ RELEASE-LPT            Restarts spooling after TEST-LPT.MIC
+ TEST-LPT               Kills spooler and starts DSLPA
+TS-DIAGNOSTICS          Creates a dumper tape of all USER MODE diagnostics
+                        *******WARNING*******
+                        Before you use this "MIC" file customer must have a
+                        DIAGNOSTIC license from DIGITAL EQUIPMENT CORP.
+ USER                   Creates directories for a second structure USER:
+ USER1                  Creates directories for a third structure USER1:
+ VFU-LPT                Tells system that LPT has a VFU
+ UETP                   To tell UETP to start up automatically ( default )
+96CHAR-LPT              File to modify <system>4-config.cmd for UPPer/lower LPT
+64CHAR-LPT              File to modify <system>4-config.cmd for UPPER LPT
+Useful-files-to-know-of:                                                                                                    Page 8-4î________________________
+        NOTE: If you have a DN22 on your 2020 system reference the document
+              REDCOM.MEM in the area <RED> for CONFIGURATION, ACCEPTANCE, and
+              DIAGNOSTIC procedures!!
+                                                             CHAPTER 9
+                                                     USING RED DURING F A AND T
+USING RED DURING F A AND T                                                                                                  Page 9-2
+        The F A and T process breaks logically today down into two phases:
+                1.      Module integration and basic checkout
+                2.      Reliablity run for the total SYSTEM
+Phase 1         Module integration and basic checkout
+        Depending on what Hardware is available , DIAGNOSTICS can be loaded either from magtape (slow) , or DIAGNOSTICS can be  used
+        from RED ( floating RED in F A & T maybe ??  )
+        After we have made sure , that all modules play together , we want to check Hardware Reliability of the total SYSTEM  .   It
+        is  advsiable to use at this time SOFTWARE , which has already been proven to be solid , and which needs a minimum amount of
+        changes ( reconfiguration etc .  ) to work on any SYSTEM.
+        ...  We enter phase 2 ...
+Phase 2         Reliability run for the total SYSTEM
+        The supplied RED-Backup tape(s) are used to build a RED-pack .
+        ( time-requirement roughly 45 minutes --- Reference <REDRED20.HLP)
+        The control-files are modified to take into account Hardware differences.
+        Reference <RED>RED20.HLP
+USING RED DURING F A AND T                                                                                                  Page 9-3
+        If the system contains more than one disk-unit , the following
+steps have to be taken
+        1. Run CHECKD to include the "other" packs in one of the structures
+           USER or USER1
+        2. Type "SMOU USER:" and/or "SMOU USER1:" to get structure(s) mounted.
+        3. Type "DO USER" and/or "DO USER1" to create the necessary
+           directories for structures USER and/or USER1
+        Example: ( PS: on 0,0 ; "user:" to be on 0,1 ;"user1:" to be on 0,2 )
+        $CHECKD
+        CHECKD>CREATE USER:
+        Enter alias:
+        How many units? 1
+        Channel , Drive for logical unit 0:     0,1
+        Number of pages to allocate for swapping?       0
+        Number of pages to allocate for the Front End File System?      0
+        Owner name?
+        [ USER: mounted as CHECKD: ]
+        [ Dismounting structure - USER: ]
+        CHECKD>CREATE USER1:
+        Enter alias:
+        How many units? 1
+        Channel , Drive for logical unit 0:     0,2
+        Number of pages to allocate for swapping?       0
+        Number of pages to allocate for the Front End File System?      0
+        Owner name?
+        [ USER1: mounted as CHECKD: ]
+        [ Dismounting structure - USER1: ]
+        CHECKD>EXIT
+USING RED DURING F A AND T                                                                                                  Page 9-4
+        $SMOUNT USER:
+        Structure USER mounted
+        $SMOUNT USER1:
+        Structure USER1 mounted
+        $DISABLE
+        @DO USER.MIC.1 
+        @;<UETP.LIB>USER.MIC.1,  7-Jun-79 16:33:01, EDIT BY EIBEN
+        ;creates directories for second structure USER:
+        DAYTIME
+         Monday, July 30, 1979 13:56:20
+        @TERMINAL NO PAGE
+        @ENABLE
+        $MOUNT STRUCTURE USER:
+        Structure USER: mounted
+        $BUILD USER:<UETP>
+        [New]
+        $$PASSWORD PTEU
+        $$IPCF
+        $$ENQ
+        $$DEFAULT 777752
+        $$PROTECTION 777740
+        $$WORKING 9999999
+        $$PERMANENT 9999999
+        $$MAXIMUM 10
+        $$USER 100
+        $$DIRECTORY 100
+        $$SUBDIRECTORY 100
+        $$
+        $BUILD USER:<UETP.ALGOL>
+        [New]
+        $$FILE
+        $$USER 100
+        $$DIRECTORY 100
+        $$
+        $BUILD USER:<UETP.BASIC>
+        [New]
+        $$FILE
+        $$USER 100
+        $$DIRECTORY 100
+        $$
+        $BUILD USER:<UETP.CBLSRT>
+        [New]
+        $$FILE
+        $$DEFAULT 777752
+        $$PROTECTION 777740
+        $$USER 100
+        $$DIRECTORY 100
+        $$
+        $BUILD USER:<UETP.DBMS>
+        [New]
+        $$WORKING 2000
+        $$PERMANENT 500
+        $$FILE
+        $$DEFAULT 777752
+        
+USING RED DURING F A AND T                                                                                                  Page 9-5
+        
+        $$PROTECTION 777740
+        $$USER 100
+        $$DIRECTORY 100
+        $$
+        $BUILD USER:<UETP.RANCBL>
+        [New]
+        $$FILE
+        $$DEFAULT 777752
+        $$PROTECTION 777740
+        $$USER 100
+        $$DIRECTORY 100
+        $$
+        $BUILD USER:<UETP.RANFOR>
+        [New]
+        $$FILE
+        $$DEFAULT 777752
+        $$PROTECTION 777740
+        $$USER 100
+        $$DIRECTORY 100
+        $$
+        $BUILD USER:<UETP.DECNET>
+        [New]
+        $$WORKING 1000
+        $$PERMANENT 1000
+        $$FILE
+        $$DEFAULT 777752
+        $$PROTECTION 777740
+        $$USER 100
+        $$DIRECTORY 100
+        $$
+        $DISABLE
+        @DISMOUNT STRUCTURE USER:
+        Structure USER: dismounted
+        @CONNECT
+        @DAYTIME
+         Monday, July 30, 1979 13:57:15
+        @TERMINAL PAGE
+        @
+        [MICEMF - End of MIC File: <UETP.LIB>USER.MIC.1 ]
+        @KMIC
+        
+        @DO USER1.MIC.1 
+        @;<UETP.LIB>USER1.MIC.1,  7-Jun-79 16:34:31, EDIT BY EIBEN
+        ;creates diretories for third structure USER1:
+        DAYTIME
+         Monday, July 30, 1979 14:03:18
+        @TERMINAL NO PAGE
+        @ENABLE
+        $MOUNT STRUCTURE USER1:
+        Structure USER1: mounted
+        $BUILD USER1:<UETP>
+        [New]
+        $$PASSWORD PTEU
+        $$IPCF
+USING RED DURING F A AND T                                                                                                  Page 9-6
+        
+        $$ENQ
+        $$DEFAULT 777752
+        $$PROTECTION 777740
+        $$WORKING 9999999
+        $$PERMANENT 9999999
+        $$MAXIMUM 10
+        $$USER 100
+        $$DIRECTORY 100
+        $$SUBDIRECTORY 100
+        $$
+        $BUILD USER1:<UETP.ALGOL>
+        [New]
+        $$FILE
+        $$USER 100
+        $$DIRECTORY 100
+        $$
+        $BUILD USER1:<UETP.CBLSRT>
+        [New]
+        $$FILE
+        $$DEFAULT 777752
+        $$PROTECTION 777740
+        $$USER 100
+        $$DIRECTORY 100
+        $$
+        $BUILD USER1:<UETP.DBMS>
+        [New]
+        $$WORKING 2000
+        $$PERMANENT 500
+        $$FILE
+        $$DEFAULT 777752
+        $$PROTECTION 777740
+        $$USER 100
+        $$DIRECTORY 100
+        $$
+        $BUILD USER1:<UETP.RANCBL>
+        [New]
+        $$FILE
+        $$DEFAULT 777752
+        $$PROTECTION 777740
+        $$USER 100
+        $$DIRECTORY 100
+        $$
+        $BUILD USER1:<UETP.RANFOR>
+        [New]
+        $$FILE
+        $$DEFAULT 777752
+        $$PROTECTION 777740
+        $$USER 100
+        $$DIRECTORY 100
+        $$
+        $BUILD USER1:<UETP.DECNET>
+        [New]
+        $$WORKING 1000
+        $$PERMANENT 1000
+USING RED DURING F A AND T                                                                                                  Page 9-7
+        $$FILE
+        $$DEFAULT 777752
+        $$PROTECTION 777740
+        $$USER 100
+        $$DIRECTORY 100
+        $$
+        $BUILD USER1:<UETP.DN22>
+        [New]
+        $$WORKING 250
+        $$PERMANENT 250
+        $$FILE
+        $$DEFAULT 777752
+        $$PROTECTION 777740
+        $$USER 100
+        $$DIRECTORY 100
+        $$
+        $DISABLE
+        @DISMOUNT STRUCTURE USER1:
+        Structure USER1: dismounted
+        @CONNECT
+        @DAYTIME
+         Monday, July 30, 1979 14:04:08
+        @TERMINAL PAGE
+        @
+        [MICEMF - End of MIC File: <UETP.LIB>USER1.MIC.1 ]
+        @KMIC
+        
+        ;******IF YOU PLAN ON RUNNING UETP FOR THE FIRST TIME AFTER YOU HAVE
+        ;******BUILT YOUR NEW DISK STRUCTURES, YOU SHOULD BRING THE SYSTEM DOWN
+        ;******AND THEN BACK UP! YOU CAN DO THIS BY ENTERING A " CTRL \ " AT THE
+        ;******CTY AND WHEN "KS10>" APPEARS TYPE "SH" CARRIGE RETURN. NOW BRING
+        ;******THE SYSTEM BACK UP BY DOING A "BT" CARRIGE RETURN, GIVE A CARRIGE RETURN
+        ;******TO "BOOT>" AND THEN ANSWER THE NORMAL START UP QUESTIONS.
+        
+        !!!!!!!END OF EXAMPLE!!!!!!!
+The SYSTEM should run without RELOADS and without "major" problems for
+48 hours , none of the UETP-based tests should show ERRORS.
+After fulfilment of the Reliability-criteria , this RED-pack is boxed
+as the RED-pack to be used by Field-Service at the CUSTOMER-site.
+********** Exception:   Systems , which are self-maintenance  and/or
+OEM-Systems.
+                                                             CHAPTER 10
+                                                             APPENDICES
+Appendix-A:CLEAN.MIC-and-RELIAB.MIC-files- for FAT                                                                         Page 10-2î__________________________________________
+The file CLEAN.MIC
+__________________
+DO CLEAN.MIC 
+allow
+The file CLEAN.MIC
+_______________________
+;<UETP.LIB>CLEAN.MIC.1,  7-Jun-79 16:40:39, EDIT BY EIBEN
+;cleans up UETP-directory and starts UETP via RELIAB.CMD
+@DAYTIME
+@ter NO PAGE
+@ter width 80
+@ENABLE
+@CANCEL BATCH */USER:F-S
+@DISABLE
+@conn <uetp>
+@dir *.erl
+@del *.log
+@del *.erl
+@und run.log
+@und except.log
+@exp <uetp>
+@ENABLE
+@daytime
+@uetp
+*TAKE RELIAB.CMD
+Appendix-A:CLEAN.MIC-and-RELIAB.MIC-files- for FAT                                                                         Page 10-3î__________________________________________
+The file RELIAB.CMD
+___________________
+;<UETP.LIB>RELIAB.CMD.1, 10-May-79 12:14:40, EDIT BY EIBEN
+!ENABLE THE TESTS TO BE RUN FOR 48 HOURs 
+DEFAULT /CYCLE:48:00/TIME:1:00:00/DEPTH:VERIFICATION
+!take semi-colon out of next line, if loopback connector on line 0 for  KMC/DUP
+;ENABLE DUPA
+!take semi-colon out of next line if loopback connector on line 1 for KMC/DUP
+;ENABLE DUPB
+!take semi-colon out of next line, if loopback connector on both lines KMC/DUP
+;ENABLE DUPAB
+!take semi-colon out of next line, if either loopback tests enabled
+;ENABLE TEST72
+!take semicolon out of next two lines , if DN22-tests desired ( see documentation )
+;ENA DN22IN
+;ENA DN22OU
+enable mta0
+;enable mta1
+;enable mta2
+;enable mta3
+ENABLE ALGOL
+ENABLE BASIC
+ENABLE CBLSRT
+ENABLE DBMS
+ENABLE RANCBL
+ENABLE RANFOR
+ENABLE MEMORY
+ENABLE DIAGS
+ENABLE LPT0
+MESSAGE
+BEGIN
+STATUS
+Appendix-B:The-UETP-System                                                                                                 Page 10-4î__________________________
+        UETP --User Environmental Test Package
+        ______________________________________
+                                                        B. Eiben
+                                                        Prod. Supp. FS
+                                                        Marlboro
+The following is a short description and guide for running the UETP ,
+which will be used for testing the KS20 in MONITOR-mode and will be
+used during F A & T - time during the reliability run hours. For a
+more detailed procedure for running UETP reference RED20.USR.
+What is UETP ?
+______________
+UETP is a package of programs , which allows YOU to run programs via
+BATCH-files . UETP also gives YOU easy control for submitting these 
+files and allows YOU to query the state of the submitted jobs.
+UETP only needs IPCF-privileges to run.
+Where are my "UETP-files"?
+__________________________
+Assuming that YOU are using the KS20 diagnostic pack RED , and are
+running the MONITOR ... and are logged in as <F-S> , all the needed
+files are in <UETP.LIB> , a subdirectory of <UETP> -- the working
+directory for UETP-usage.
+All files are "visible" to you , so YOU can type them out , or can do
+a "DIRECTORY"-command to see whats in there.
+How do I run UETP ?
+___________________
+******************************************************************
+For checking-reasons it is recommended YOU do the above operations
+on a hard-copy device ( at least the first time )
+******************************************************************
+Assuming the above ( RED in use , logged in as <F-S> ) YOU do the
+following:
+TYPE-IN                         RESULTS
+_______                         _______
+DO CLEAN.MIC            This cleans up work areas, connects to <uetp>,
+                        and starts UETP via the RELIAB.CMD
+.......and watch the output ....
+***** see example at the end *****
+What-can-I-do-to-query-UETP?                                                                                               Page 10-5î____________________________
+UETP is a native DEC20 program , so if YOU don't know anything
+YOU can type a "?" to it , if YOU need help at a specific stage inside
+a command , typing "?" will give you help there , if YOU want overall
+help , YOU can type "HELP" to UETP.
+Basically two forms of operation are supported:
+For the general case , it is recommended to use the supplied *.VER
+files .
+These files can be started with the "TAKE" command by just doing a
+"TAKE RELIAB" ... and UETP will know what to do.
+ If YOU want to do something special , YOU need to know more.
+All programs run , have BATCH-command files , which have one of
+three extensions:
+NAME.ext --- where NAME is test name and ext can be VER for verification
+                                                
+                                                CMP for comprehensive
+                                                APP for application
+( currently only VER files developed and tested )
+To enable a specific test FOO , YOU type to UETP "ENAble FOO"
+To begin this test FOO  , YOU type to UETP "BEGin FOO"
+To stop test FOO  , YOU type to UETP "ABOrt FOO"
+To disable test FOO from the "RUN-table" , YOU type "DISable FOO"
+The keyword "ALL" will do it for all "known" tests for the "RUN-table"
+                        ******WARNING******
+CURRENT VERSION OF UETP MIGHT REQUIRE TWO "ABORT ALL" COMMANDS TO
+ABORT ALL OF THE UETP TESTS RUNNING!!!
+What-to-look-for-during-UETP-runs?                                                                                         Page 10-6î__________________________________
+The "STatus"-command of UETP gives YOU a fast overview , what's going on.  A "clean" run will have "0" in the  "ERROR"-column.   The
+BATCH-jobs  try  to  be helpful in giving YOU text-output in case of errors.  UETP will have the same ERROR-output in EXCEPT.LOG and
+also will leave the results in file(s) which have the following naming-convention:  Example:  test Mta0 develops an error ,  so  the
+resulting BATCH LOG-FILE "MTA0.LOG" is renamed to "MTA0.ERL" ,when the job is completed ( "END" message seen ) So if YOU finally ran
+out of patience , or accumulated enough errors, You do the following:
+UETP> ST
+UETP> ABO ALL
+UETP> EXIT
+@PRI *.ERL     (Enter "TYPE *.ERL" if no lineprinter available)
+which prints the LOG-files which had errors and brings YOU back to YOUR original  area  .   After  analysing  the  BATCH-output  and
+correcting the problems , YOU start from above !
+@CONN
+@DO CLEAN.MIC
+Note:   If the system should crash during an UETP-run , all jobs , which have already been submitted , but not run  yet  ,  will  be
+        started the next time , YOU bring the monitor up .  In this case it is very advisable to log-in , enable yourself and do an
+        Cancel Batch */user:f-s
+        which will kill the "wild"-running jobs.  The "CLEAN-Command" will do the same thing , just to make sure.
+How-can-I-run-UETP-on-a-single-TTY ( no LPT ) System?                                                                      Page 10-7î__________________________________
+UETP has built-in Control-C Intercept to safeguard You as much as possible against DISASTERS ( Don't forget ,  the  "simplicity"  of
+UETP is achieved by running a background-job which handles the IPCF-message traffic )
+On a single TTY-system however , YOU can "leave" UETP by doing a "PUSH" which will supply YOU with  an  "inferior  Fork"  underneath
+UETP , so that YOU can do at YOUr leisure "TYPE *.ERL" , "Inf Ba" , "SY ALL F-S" and other good things.
+Don't forget to go back to UETP by un-doing the previous "PUSH" with a "POP"-command ,which brings YOU back to UETP.
+How-can-I-run-UETP-on-a-single-TTY ( no LPT ) System?                                                                      Page 10-8î__________________________________
+@ sys 4145 release 4, TOPS-20 Monitor 4(3046)
+@LOG F-S 
+ Job 3 on TTY50 23-Aug-79 11:08:53
+ Thu 23-Aug-79 11:08:57  Up 44:38:45
+ 3+3 Jobs   Load av   0.42   1.78   2.06
+APR-Serial Nr.: 4145   Micro-Code Ver.: 117      HSB-Adr.: 400      (enabled) 
+Interrupts enabled:  power fail  NXM  Interv. timer 
+ TOPS20 paging on  trap + paging enabled 
+ Errors which occurred:  Soft ( ECC ) Mem Err.  Adr.: 1726760  Bit 10 failed 
+ End of LOGIN.CMD.1
+;*****We enter the DO CLEAN.MIC to clean up from earlier UETP-runs and this
+;*****also starts UETP!
+@DO CLEAN.MIC.1 
+@;<UETP.LIB>CLEAN.MIC.1,  7-Jun-79 16:40:39, EDIT BY EIBEN
+;cleans up UETP-directory and starts UETP via RELIAB.CMD
+DAYTIME
+ Thursday, August 23, 1979 11:09:10
+@TER NO PAGE
+@TER WIDTH 80
+@ENABLE
+$CANCEL BATCH */USER:F-S
+[No Jobs Canceled]
+$DISABLE
+@CONN <UETP>
+;*****Now he checks for old TEST and ERROR logs and trys to delete them!
+@DIR *.ERL
+%No such file type - *.ERL
+@DEL *.LOG
+ ALGOL.LOG.1 [OK]
+ BASIC.LOG.1 [OK]
+ CBLSRT.LOG.1 [OK]
+ DBMS.LOG.1 [OK]
+ EXCEPT.LOG.1 [OK]
+ EXCEPT.LOG.2 [OK]
+ MTA0.LOG.1 [OK]
+ RUN.LOG.1 [OK]
+ RUN.LOG.2 [OK]
+@DEL *.ERL
+%No such file type - *.ERL
+@UND RUN.LOG
+ RUN.LOG.1 [OK]
+ RUN.LOG.2 [OK]
+@UND EXCEPT.LOG
+ EXCEPT.LOG.1 [OK]
+ EXCEPT.LOG.2 [OK]
+@EXP <UETP>
+ PS:<UETP> [24 pages freed]
+@ENABLE
+How-can-I-run-UETP-on-a-single-TTY ( no LPT ) System?                                                                      Page 10-9î__________________________________
+$DAYTIME
+ Thursday, August 23, 1979 11:09:33
+$UETP
+[23-Aug-79 11:09:39         User Environment Test Package ]
+ 
+ 
+;*****The CLEAN.MIC file automatically does the RELIAB.CMD for you!!
+UETP>TAKE RELIAB.CMD
+UETP>DEFAULT /CYCLE:48:00/TIME:1:00:00/DEPTH:VERIFICATION
+[11:10:00  DEFAULT COMPLETED]
+UETP>enable mta0
+[11:10:02  ENABLE COMPLETED]
+UETP>ENABLE ALGOL
+[11:10:02  ENABLE COMPLETED]
+UETP>ENABLE BASIC
+[11:10:03  ENABLE COMPLETED]
+UETP>ENABLE CBLSRT
+[11:10:05  ENABLE COMPLETED]
+UETP>ENABLE DBMS
+[11:10:06  ENABLE COMPLETED]
+UETP>ENABLE RANCBL
+[11:10:07  ENABLE COMPLETED]
+UETP>ENABLE RANFOR
+[11:10:08  ENABLE COMPLETED]
+UETP>ENABLE MEMORY
+[11:10:10  ENABLE COMPLETED]
+UETP>ENABLE DIAGS
+[11:10:13  ENABLE COMPLETED]
+UETP>MESSAGE
+UETP>BEGIN
+[11:11:54  BEGIN COMPLETED]
+    START MTA0     11:10:49
+    START ALGOL    11:10:53
+;*****Example of a typical UETP error output message. Tape was not mounted!!
+;*****All UETP error output messages start with a "**"
+**  ERROR MTA0     11:10:58 DEVICE MTA0: IS NOT ONLINE
+    START BASIC    11:11:02
+How-can-I-run-UETP-on-a-single-TTY ( no LPT ) System?                                                                     Page 10-10î__________________________________
+    START CBLSRT   11:11:04
+;*****This Status comes out as a result of the RELIAB.CMD
+UETP>STATUS
+[23-Aug-79 11:11:57]
+   Test   Depth   Status    Cycle   Times   Error   Error   Start
+   name                             run     count   limit   time
+  ======  =====   =======   =====   =====   =====   =====   =====
+  MTA0    VER     Running   48:00       0       1       0   23-Aug-79 11:10:13
+  ALGOL   VER     Running   48:00       0       0       0   23-Aug-79 11:10:13
+  BASIC   VER     Running   48:00       0       0       0   23-Aug-79 11:10:13
+  CBLSRT  VER     Running   48:00       0       0       0   23-Aug-79 11:10:13
+  DBMS    VER     Queued    48:00       0       0       0   23-Aug-79 11:10:13
+  RANCBL  VER     Queued    48:00       0       0       0   23-Aug-79 11:10:13
+  RANFOR  VER     Queued    48:00       0       0       0   23-Aug-79 11:10:13
+  MEMORY  VER     Queued    48:00       0       0       0   23-Aug-79 11:10:13
+  DIAGS   VER     Queued    48:00       0       0       0   23-Aug-79 11:10:13
+;*****Notice that the Error count column has a "1" in it for the MTA0 test
+    END   CBLSRT   11:12:22
+;*****Now we'll give UETP a "?" to find out the available commands!
+UETP>? one of the following:
+ ABORT     BEGIN      DEFAULT    DISABLE    ENABLE     EXIT       HELP
+ MODIFY    PUSH       REVIVE     SILENCE    STATUS     TAKE       WAIT
+;*****Lets get some real help from UETP!!
+UETP>HELP
+SET-UP COMMANDS
+        These commands cause the UETP command processor to  perform  the
+        desiganted  function immediately.  They are more closely related
+        to the preparation of an UETP run than to the run itself.
+                1.      TAKE (COMMANDS FROM) <filespec>
+        
+                   The contents of <filespec> will be taken as  commands
+                   until  end of file is encountered.  After end-of-file
+                   Command Processor will revert to the TTY.
+        
+                        BEGIN (UETP RUN AFTER) <hh:mm>
+        
+                   The batch jobs  will  be  submitted  after  the  time
+How-can-I-run-UETP-on-a-single-TTY ( no LPT ) System?                                                                     Page 10-11î__________________________________
+                   specified  by  the  <hh:mm> argument.  If the <hh:mm>
+                   argument is missing, the job will be submitted to  be
+                   run immediately.
+PARAMETER SETTING COMMANDS
+        
+                Each command  sets  parameters  which  define  the  test
+                environment.   A  command may be superceded by giving it
+                again, with different  arguments.   All  parameters  are
+                initialized  to  default settings which are indicated in
+                the appropriate paragraphs below.  However, once a value
+                has  been  specified it becomes the default until it has
+                been respecified.
+        
+        
+        1.      ENABLE/DISABLE COMMANDS
+        
+                This command determines which UETP tests should be  run,
+                and for each test, what level of testing should be done.
+                This command does not actualy start the test.   It  only
+                flags  the  features  which  will  be run when the BEGIN
+                command is typed.
+        
+                
+                       +-      -+ +-                 -+ +-                -+
+                       | <test> | |     VERIFICATION  | |       <n>        |
+         ENABLE (TEST) |        | |/DEPTH:COMPRHENSIVE| |/CYCLE:CONTINUOUS |
+         DISABLE       |  ALL   | |     APPLICATION   | |       <hh:mm>    |
+                       +-      -+ +-                 -+ +-                -+
+                                  +-                 -+ +-                -+
+                                  |                   | |                  |
+                                  |/LIMIT: # of errors| |/TIME: CPU time   |
+                                  |                   | |                  |
+                                  +-                 -+ +-                -+
+        
+                The basic idea is to allow  the  user  to  detemine  the
+                complexity  (DEPTH)  of  the  procedure and the duration
+                (CYCLE).
+                        <test>, is the file name of a batch control file
+                        in UETP directory with file types of .VER, .CMP
+                        and/or .APP
+                        In this manner a user can increase the number of
+                        procedures available by merely adding files to
+                        the directory.  For example, the COBOL batch
+                        control files might be called:
+                                
+                                COBOL.VER
+                                COBOL.CMP
+                                COBOL.APP
+        
+How-can-I-run-UETP-on-a-single-TTY ( no LPT ) System?                                                                     Page 10-12î__________________________________
+                        If an additional COBOL test was desired (COBOL2)
+                        we  would  create  the  following  batch control
+                        files:
+        
+                                COBOL2.VER
+                                COBOL2.CMP
+                                COBOL2.APP
+                
+        
+                b.      The argument "ALL" will cause all the  tests  of
+                        the currently specified or defaulted DEPTH value
+                        to be enabled.  
+                e.      DEFAULT CONDITIONS  -  The  default  values  for
+                        "DEPTH" and "CYCLE" are initialy VERIFICATION and
+                        1 respectively.  Once sepcified  the  new  value
+                        becomes   the  default  until  a  new  value  is
+                        specified.  In the following example  the  depth
+                        value is the same in both commands:
+                        
+                        ENABLE APL/DEPTH:COMPREHENSIVE
+                        ENABLE DISK
+        
+                f.      The switch "DEPTH" allows the user to select one
+                        of three levels of testing within each category.
+                        The net result here is that  one  of  the  three
+                        file    types    get   selected   (.VER,
+                        .CMP or .APP)
+        
+                g.      The switch "CYCLE" determines how many times the
+                        specified  product  should be run.  It overrides
+                        any   previous   specification   of   for   this
+                        procedure.  A value of zero (0) disables a test.
+                        n - Specifies number of times this test be  run.
+                              A zero value disables the test.
+        
+                        CONTINUOUS - Specifies that this function should
+                              run continuously.
+        
+                        hh:mm - Specifies the  elapsed  wall  clock  end
+                              time   from   start  to  finish  for  this
+                              procedure.
+        
+        
+        2.  DEFAULT
+        
+        
+                The DEFAULT command changes the default values  for  the
+                /CYCLE  and  /DEPTH  switches.   The  setting of the new
+                defaults effects all UETP commands.  The format is:
+        
+                        
+                        
+                
+How-can-I-run-UETP-on-a-single-TTY ( no LPT ) System?                                                                     Page 10-13î__________________________________
+                               +-                  -+ +-               -+
+                               |     VERIFICATION   | |      <n>        |
+DEFAULT (VALUES FOR SWITCHES)  |/DEPTH:COMPREHENSIVE| |/CYCLE:CONTINUOUS|
+                               |     APPLICATION    | |      <hh:mm>    |
+                               +-                  -+ +-               -+
+                               +-                  -+ +-               -+
+                               |                    | |                 |
+                               |/LIMIT: # of errors | |/TIME: CPU time  |
+                               |                    | |                 |
+                               +-                  -+ +-               -+
+                
+        
+RUN-TIME COMMANDS
+                These  commands  provide  the  user   with   means   for
+                monitoring  and  influencing the UETP run while it is in
+                progress.
+        
+        1.      MODIFY COMMAND
+        
+                This command will modify the switch settings on the  any
+                or all of the currently enabled tests.
+        
+        
+              +-      -++-        -+      +-         -+ +-            -+
+              | <test> ||       VER|      |       VER | |       <n>    |
+MODIFY (TEST) |        ||/DEPTH:CMP| (TO) |/DEPTH:CMP | |/CYCLE:CONTINU|
+              |  ALL   ||       APP|      |       APP | |       <hh:mm>|
+              +-      -++-        -+      +-         -+ +-            -+
+        
+        
+        
+                a.      ALL refers to all the currently enabled tests.
+                b.      <test> refers  to  a  single  currently  enabled
+                        test.
+        
+                c.      The switch values are the same as in the  ENABLE
+                        command.
+        
+        2.      STATUS (INFORMATION)
+        
+                This  command  provides  a  summary  of  all  tests   in
+                progress.   The  summary  appears on the user terminal .
+        3.      ABORT
+                This command  causes  termination  procedures  to  begin
+                immediately.  The format is:
+        
+                              +-      -+
+                              | <test> |          VER
+How-can-I-run-UETP-on-a-single-TTY ( no LPT ) System?                                                                     Page 10-14î__________________________________
+                 ABORT (TEST) |  ALL   |  /DEPTH: CMP
+                              +-      -+          APP
+                
+                where, <test> is  the  file  name  of  the  verification
+                procedure (see ENABLE command).
+        4.  PUSH
+                The PUSH command places the  user  in  EXEC  mode  while
+                continuing  to run the UETP.  The user can type commands
+                or run programs.  He will not be able to  log  out.   To
+                return to the UETP enviornment the user will use the POP
+                command.  Messges normally appearing on the console from
+                the UETP will be supressed.
+        5.  WAIT
+                The WAIT command  causes  the  UETP  to  sleep  for  the
+                specified time.  This command was installed to allow the
+                UETP to run under batch.  Normally, when the  UETP  runs
+                it  always  wants  input from the TTY.  Under batch, the
+                UETP gets aborted because there is no more input for it.
+                The  WAIT  command  keeps  it from telling batch that it
+                wants  the  next  command  and  therefore  avoids  being
+                aborted.   The  second field is an extra wizzy that will
+                print the output of a STATUS command  at  the  specified
+                interval.   Note that the STATUS output interval must be
+                less than the WAIT interval.  The command format is:
+        
+                WAIT (FOR) HHH:MM (with status every) HHH:MM
+                WAIT (FOR) ALL (tests to complete with status every) HHH:MM
+        6.  EXIT
+        
+                The EXIT command exits to monitor level.
+        
+        7.  HELP
+        
+               The HELP command prints out a help text  explaining  the
+                commands.
+        
+    START DBMS     11:12:45
+UETP>
+    END   MTA0     11:15:48
+    START RANCBL   11:16:08
+How-can-I-run-UETP-on-a-single-TTY ( no LPT ) System?                                                                     Page 10-15î__________________________________
+    END   RANCBL   11:17:15
+    START RANFOR   11:17:36
+;*****This is a good time to ask UETP for STATUS!
+UETP>STATUS
+[23-Aug-79 11:21:04]
+   Test   Depth   Status    Cycle   Times   Error   Error   Start
+   name                             run     count   limit   time
+  ======  =====   =======   =====   =====   =====   =====   =====
+  MTA0    VER     Queued    48:00       1       1       0   23-Aug-79 11:10:13
+  ALGOL   VER     Running   48:00       0       0       0   23-Aug-79 11:10:13
+  BASIC   VER     Running   48:00       0       0       0   23-Aug-79 11:10:13
+  CBLSRT  VER     Queued    48:00       1       0       0   23-Aug-79 11:10:13
+  DBMS    VER     Running   48:00       0       0       0   23-Aug-79 11:10:13
+  RANCBL  VER     Queued    48:00       1       0       0   23-Aug-79 11:10:13
+  RANFOR  VER     Running   48:00       0       0       0   23-Aug-79 11:10:13
+  MEMORY  VER     Queued    48:00       0       0       0   23-Aug-79 11:10:13
+  DIAGS   VER     Queued    48:00       0       0       0   23-Aug-79 11:10:13
+    END   RANFOR   11:19:39
+    START MEMORY   11:19:58
+;*****Notice the "END RANCBL" message at the top of this page.
+;*****This tells you that the RANCBL test has passed once and its state
+;*****has switched from RUNNING to QUEUED.
+;*****Now lets check to see which tests we can abort, and then abort them all
+UETP>ABORT (test) ? name of test,
+  or ALL
+UETP>ABORT (test) ALL
+[11:21:43  ABORT OF ALL VERIFICATION TESTS COMPLETED]
+[All tests complete on processor # 4145]
+;*****CURRENT VERSION OF UETP MIGHT REQUIRE TWO ABORT ALL COMMANDS TO ABORT
+;*****ALL THE UETP TESTS RUNNING!!!
+;*****This status comes out as a result of the ABORT ALL
+[23-Aug-79 11:21:43]
+   Test   Depth   Status    Cycle   Times   Error   Error   Start
+   name                             run     count   limit   time
+  ======  =====   =======   =====   =====   =====   =====   =====
+  MTA0    VER     Aborted   48:00       1       1       0   23-Aug-79 11:10:13
+  ALGOL   VER     Aborted   48:00       0       0       0   23-Aug-79 11:10:13
+  BASIC   VER     Aborted   48:00       0       0       0   23-Aug-79 11:10:13
+How-can-I-run-UETP-on-a-single-TTY ( no LPT ) System?                                                                     Page 10-16î__________________________________
+  CBLSRT  VER     Aborted   48:00       1       0       0   23-Aug-79 11:10:13
+  DBMS    VER     Aborted   48:00       0       0       0   23-Aug-79 11:10:13
+  RANCBL  VER     Aborted   48:00       1       0       0   23-Aug-79 11:10:13
+  RANFOR  VER     Aborted   48:00       1       0       0   23-Aug-79 11:10:13
+  MEMORY  VER     Aborted   48:00       0       0       0   23-Aug-79 11:10:13
+  DIAGS   VER     Aborted   48:00       0       0       0   23-Aug-79 11:10:13
+;*****We now exit from UETP so that a directory of the area <UETP> can be seen!
+UETP>EXIT
+$DIR
+   PS:<UETP>
+ 4.DIRECTORY.1
+ ALGOL.DIRECTORY.1
+   .LOG.1
+ BASIC.DIRECTORY.1
+   .LOG.1
+ CBLSRT.DIRECTORY.1
+   .LOG.1
+ DBMS.DIRECTORY.1
+   .LOG.1
+ DECNET.DIRECTORY.1
+ DN22.DIRECTORY.1
+ EXCEPT.LOG.1,2,3
+ LIB.DIRECTORY.1
+ MAIL.TXT.1
+ MEMORY.LOG.1
+ MIC.DIRECTORY.1
+ MTA0.ERL.1
+   .LOG.1
+ RANCBL.DIRECTORY.1
+   .LOG.1
+ RANFOR.DIRECTORY.1
+   .LOG.1
+ RUN.LOG.1,2,3
+ UETCMP.FOR.1
+ Total of 28 files
+;***** THE CREATED FILE: "EXCEPT.LOG" HOLDS ALL "ABNORMAL" MESSAGES
+;***** OUT OF THE UETP-RUN
+;***** THE CREATED FILE: "RUN.LOG" HOLDS ALL MESSAGES WHICH CAME OUT ON
+;***** THE TERMINAL RUNNING UETP
+;***** IN CASE OF ERRORS UETP RENAMES THE OFFENDING LOG-FILE TO *.ERL.
+;***** THE FILE ( THIS EXAMPLE ) "MTA0.ERL" IS THE RENAMED LOG-FILE
+;***** FOR MTA0 , SINCE BATCH-RUN MTA0 DEVELOPED AN ERROR.
+;***** THE REST OF THE FILES ARE THERE , SINCE WE "ABORTED" THE TESTS THRU
+;***** UETP ( BATCH ) ; AND NONE OF THE BATCH-FILES were ABLE TO CLEAN UP
+;***** BEWARE , THE "DO CLEAN" COMMAND SHOULD ONLY BE USED , AFTER THE
+;***** FILES "*.ERL" AND "EXCEPT.LOG" HAVE BEEN PRINTED !!
+;***** THIS WILL BE IN GENERAL THE CASE , IF YOU BEGIN A FRESH UETP-RUN
+How-can-I-run-UETP-on-a-single-TTY ( no LPT ) System?                                                                     Page 10-17î__________________________________
+;*****Now after fixing any problems that would have caused us to abort the
+;*****UETP tests, we'll connect to <F-S> and type "DO CLEAN.MIC"
+$CONN <F-S>
+$DO CLEAN.MIC.1
+;*****Get ready for a new UETP run!!!
+                                                             CHAPTER 11
+                                                     THE FILE <SYSTEMSYSJOB.RUN
+SYSTEM:SYSJOB.RUN                                                                                                          Page 11-2î_________________
+JOB 0 /LOG OPERATOR XX OPERATOR
+ENA
+^ESET LOGIN PSEUDO
+^ESET LOGIN CONSOLE
+/
+RUN SYS:MOUNTR
+RUN SYS:INFO
+RUN SYS:ORION
+RUN SYS:QUASAR
+RUN SYS:MAILER
+RUN SYS:MAPPER
+RUN SYS:LPTSPL
+RUN SYS:FAL20
+RUN SYS:STATUS
+RUN SYS:OPER20
+RUN SYS:CDRIVE
+RUN SYS:SPRINT
+JOB 0 /^ESET OPERATOR
+PTYCON
+GET SYSTEM:PTYCON.ATO
+/
+JOB 1 /LOG OPERATOR XX OPERATOR
+ENA
+RUN SYS:BATCON
+/
+        NOTE: This SYSJOB.RUN file will look different
+              if you have configured a KMC/DUP or a DN22
+              for the RED PACK!!
+                                                             CHAPTER 12
+                                                     THE FILE <SYSTEMPTYCON.ATO
+SYSTEM:PTYCON.ATO                                                                                                          Page 12-2î_________________
+SILENCE
+LOG
+DEFINE ^$OPR
+CONN OPR
+LOG OPERATOR FOO OPERATOR
+ENA
+^ESEND * Warning RED pack mounted !!
+MOUNT STRUCTURE USER: /NOWAIT
+MOUNT STRUCTURE USER1: /NOWAIT
+!in case of dn22-test , change next 7 lines
+;X
+;DEFINE DN22
+;CONN DN22
+;log operator foo operator
+;DO <UETP.LIB>22-LOAD
+;X
+;CONN OPR
+OPR
+TAKE SYS:SYSTEM.CMD
+PUSH
+ENA
+^ESET LOGIN ANY
+^ESEND * SYSTEM IN OPERATION
+APPEND PS:<SPOOL>ORION-SYSTEM-LOG.002.* PS:<SPOOL>ORION-OLD.LOG
+DELETE PS:<SPOOL>ORION-SYSTEM-LOG.002.*
+POP
+^X
+NO SILENCE
+W ALL
+CONN OPR
+;in case of UETP AUTO-RESTART change next 7 lines
+^X
+DEF UETP
+CONN UETP
+LOG F-S FOO
+^X
+UETP-DO CLEAN
+CONN UETP
+                                                                                                                        Page Index-1
+                                                               INDEX
+Appendix-a:clean.mic-and-reliab.mic-files- . . . . . . . . . . . . 10-1
+Appendix-b:the-uetp-system . . . . . . . . . . . . . . . . . . . . 10-3
+Contents . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 1
+Creating-a-diagnostic-magtape. . . . . . . . . . . . . . . . . . . 4-1
+How-can-i-run-uetp-on-a-single-tty . . . . . . . . . . . . . . . . 10-6
+Ptycon.ato . . . . . . . . . . . . . . . . . . . . . . . . . . . . 12-1
+Red-backup-tape-format . . . . . . . . . . . . . . . . . . . . . . 2-1
+Red-pack-organization  . . . . . . . . . . . . . . . . . . . . . . 1-1
+Red20.hlp) . . . . . . . . . . . . . . . . . . . . . . . . . . . . 9-2
+Saving-the-world-before-it-tumbles-down-on-you.  . . . . . . . . . 3-1
+Sysjob.run . . . . . . . . . . . . . . . . . . . . . . . . . . . . 11-1
+System:ptycon.ato  . . . . . . . . . . . . . . . . . . . . . . . . 12-2
+System:sysjob.run  . . . . . . . . . . . . . . . . . . . . . . . . 11-2
+Updating-diagnostics-and-m-code-from-new-diagnostic-tape.  . . . . 5-1
+Useful-files-to-know-of: . . . . . . . . . . . . . . . . . . . . . 8-1
+Using-red-during-stand-alone . . . . . . . . . . . . . . . . . . . 6-1
+Using-red-during-timesharing . . . . . . . . . . . . . . . . . . . 7-1
+What-can-i-do-to-query-uetp? . . . . . . . . . . . . . . . . . . . 10-4
+What-to-look-for-during-uetp-runs? . . . . . . . . . . . . . . . . 10-5
+  
