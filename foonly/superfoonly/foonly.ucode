@@ -1,0 +1,1770 @@
+COMMENT    VALID 00051 PAGES
+C REC  PAGE   DESCRIPTION
+C00001 00001
+C00011 00002	DATA TRANSFER (OTHER THAN BLT)
+C00013 00003	SIMPLE ARITHMETIC AND BOOLEANS
+C00014 00004	ARITHMETIC TESTING
+C00017 00005	ARITHMETIC INCREMENT AND TEST
+C00019 00006	ARITHMETIC DECREMENT AND LOGICAL TEST INSTRUCTIONS
+C00021 00007	RANDOM BRANCHES - UUO'S
+C00023 00008	JSR,JSP,JSA,JRA
+C00024 00009	LOGICAL SHIFTS AND JFFO
+C00028 00010	ROTATES
+C00031 00011	ARITHMETIC SHIFT SINGLE
+C00034 00012	ARITHMETIC SHIFT DOUBLE
+C00037 00013	ARITHMETIC DOUBLE SHIFT - EXTRA CYCLE
+C00039 00014	BYTE POINTER INCREMENT
+C00041 00015	BYTE LOAD
+C00045 00016	BYTE DEPOSIT
+C00048 00017	BLOCK TRANSFER
+C00050 00018	BLT - SPECIAL CASES
+C00052 00019	BLT FAULT RECOVERY
+C00053 00020	MULTIPLY GENERAL DESCRIPTION
+C00058 00021	MULTIPLY SETUP
+C00061 00022	MULTIPLY ITERATION
+C00065 00023	MULTIPLY CLEANUP
+C00069 00024	DIVIDE - ITERATION SETUP
+C00071 00025	DIVIDE - ITERATION
+C00074 00026	DIVIDE - INTEGER DIVIDE
+C00075 00027	FLOATING ADD/SUBTRACT SETUP
+C00079 00028	UN-NORMALIZED FLOATING ADD
+C00080 00029	FLOATING ADD/SUBTRACT - DENORMALIZE
+C00082 00030	FLOATING ADD/SUBTRACT ARITHMETIC CYCLE AND MAIN NORMALIZE CYCLE(S)
+C00085 00031	FINAL FLOATING NORMALIZATION
+C00089 00032	FLOATING LONG MODE
+C00091 00033	DOUBLE FLOATING NEGATE AND FLOATING SCALE
+C00093 00034	FLOATING MULTIPLY
+C00096 00035	FLOATING DIVIDE
+C00097 00036	FLOATING DIVIDE - SETUP
+C00098 00037	FLOATING DIVIDE - ITERATION (FDV,FDVR)
+C00100 00038	FLOATING DIVIDE LONG
+C00101 00039	FLOATING DIVIDE LONG - DIVIDEND RIGHT SHIFT
+C00103 00040	FLOATING DIVIDE LONG - CLEANUP
+C00104 00041	DOUBLE PRECISION - ADD
+C00106 00042	DOUBLE PRECISION - SUBTRACT
+C00108 00043	DOUBLE PRECISION - ADD - DENORMALIZE
+C00110 00044	DOUBLE PRECISION - NORMALIZE
+C00112 00045	DOUBLE PRECISION - MULTIPLY
+C00114 00046	DOUBLE PRECISION - MULTIPLY - CONTINUED
+C00117 00047	DOUBLE PRECISION - DIVIDE
+C00119 00048	DOUBLE PRECISION - DIVIDE ITERATION SETUP
+C00120 00049	DOUBLE PRECISION - DIVIDE CLEANUP
+C00121 00050	INPUT/OUTPUT
+C00123 00051	INPUT/OUTPUT - BLOCK XFER
+C00125 ENDMK
+C;
+;DATA TRANSFER (OTHER THAN BLT)
+
+MOVEx_ADDx	;0R	OPBL,MOVEM:OPAL	REALLY ADD OF 0
+
+MOVSx/	;OPBL,MOVSM:OPAL
+	L.SWPSLALMTAOSTORES
+
+MOVNx/	;OPBL,MOVNM:OPAL
+	SP(STROBE CRYFLGS)	;SET FLAGS, OVERFLOW
+	LAL
+	0AR
+	AR-AL+1AMAOSTORES	;2'S COMPL OF DATA
+
+MOVMx/	;OPBL,OPBR
+	;MOVMM:OPAL,OPAR
+	SP(STROBE CRYFLGS)
+	LAL
+	0AR
+	AR+AL!AR-AL+1(R0)AM	;DIRECT OR 2'S COMP DET BY SIGN
+	AMAOSTORES
+
+EXCH/	;OPAL	OPBM
+	LALMTAOSM	;ACMEM
+	MQSOSA	;MEMAC
+
+PUSH/	;OPAR	OPBM
+	SP(PUSHTST)	;TEST PDLOV
+	RAR
+	0AL
+	AR+AL+(1,,1)AMAOSA	;UPDATE PNTR
+	MQSOSM		;STORE DATA
+
+POP/	;OPAR	OPBM
+	SP(POPTST)	;TEST PDLOV
+	RAR
+	-1SLAL
+	AR+AL(CRYINH)AMAOSA	;UPDATE PNTR
+	MQSOSM		;STORE FOR POP, NOT POPJ
+
+Hxxxx/	;OPBL,HxxxM:OPAL			SOURCE
+	;OPAR,Hxx-M:OPBR,HxxZxHxxEx:0R	DEST OR 0 (-1 HANDLED BELOW)
+	RAR
+	L.SWPSL
+	HWDSRCAL			;L OR SL (SWP ON HLRx, HRLx)
+	HWDEC(AL,AR)MTAOSTORES	;LH(AL),,RH(AR) OR LH(AR),,RH(AL)
+					;GRONK SOURCE HALF TO -1 IF
+					;HxxO, HLxEL0, HRxEL18
+
+;SIMPLE ARITHMETIC AND BOOLEANS
+
+ADDx/	;OPBL	OPAR
+	SP(STROBE CRYFLGS)
+	LAL
+	RAR
+	AR+ALAMAOSTORES
+
+SUBx/	;OPBL	OPAR
+	SP(STROBE CRYFLGS)
+	LAL
+	RAR
+	AR-AL+1AMAOSTORES
+
+BOOLE/	;OPBL,SETZxSETOxSETAxSETCAx:0L	AVOID FETCHING
+	;OPAR,SETZxSETOxSETMxSETCMx:0R	UNNEEDED OPERANDS
+	LAL
+	RAR
+	BOOLDEC(AL,AR)AMAOSTORES	;ALU BOOLEAN OP DET BY INSTR
+;ARITHMETIC TESTING
+
+Conditional jumps and skips have to determine  the  branch  condition
+early  in  the  cycle for the IBOX. There is not time to wait for the
+result from the adder, so a combination of testing the input operands
+and using the adder carry (available earlier than the result) is used
+to determine the branch condition.
+
+The compares use the TC compare  for  the  equal  test,  and  do  the
+arithmetic  comparison  by looking at the two sign bits and the carry
+out of bit 1 of the adder. If the operand signs are different, it  is
+clear which is larger without considering the adder. If the signs are
+the same, the carry resulting from subtracting  one  from  the  other
+determines  the condition. CRY0 and CRY1 are equivalent in this case,
+with  CRY1  being  used  because  it   is   appropriate   for   other
+conditionals. The exact equations for the branch are as follows:
+
+	-	F
+	L	(R0~L0)((R0=L0)~CRY1)
+	E	TCE
+	LE	TCE(R0~L0)((R0=L0)~CRY1)
+	A	T
+	GE	(~R0L0)((R0=L0)CRY1)
+	N	~TCE
+	G	~TCE((~R0L0)((R0=L0)CRY1))		
+
+CAxx/	;OPBL	OPAR
+	LAL
+	RAR
+	AR-AL+1AMAOSTORES	;MAY STORE AC IF SKIPL A,FOO ETC.
+	CAxxPROG BRANCH	;TELL IBOX WHERE TO GO
+
+While the PDP-10 figuratively compares the data with 0 for JUMPx  and
+SKIPx,  that  is  exactly  what Super Foonly really does, saving EBOX
+microde by having the test word and 0 supplied by the IBOX as the two
+operands to a compare.
+	
+JUMPx_CAxx	;0L	OPAR		COMPARE AC WITH 0
+
+SKIPx_CAxx	;0L	OPBR		COMPARE MEM WITH 0
+;ARITHMETIC INCREMENT AND TEST
+
+The instructions which increment  a  location  and  test  the  result
+logically  duplicate  the  sign bit of the adder in the branch logic,
+and use the TC to test for an operand  which  will  be  0  after  the
+increment. Thus TCE is effectively a zero test on the result, and the
+sign is determined  by  XORing  the  original  sign  with  CRY1.  The
+equations follow:
+	
+	-	F
+	L	(~R0CRY1)(R0~CRY1)
+	E	TCE
+	LE	TCE(~R0CRY1)(R0~CRY1)
+	A	T
+	GE	(~R0~CRY1)(R0CRY1)
+	N	~TCE
+	G	~TCE((~R0~CRY1)(R0CRY1))	
+
+AOxx/	;OPAR,AOSx:OPBR	GET APPROPRIATE OPERAND
+	SP(STROBE CRYFLGS)
+	-1SLAL			;SET UP TO TEST FOR -1 (0 RESULT)
+	RAR
+	AR+1AMAOSTORES	;STORE RESULT
+	AOxxPROG BRANCH
+
+;AOBJP and AOBJN use the same logic to determine the  signs  of  their
+;results as the AOxx instructions, being fundamentally similar.
+
+AOBJP/	;OPAR
+	RAR
+	0AL
+	AR+AL+(1,,1)AMAOSTORES
+	AOxGEPROG BRANCH
+
+AOBJN/	;OPAR
+	RAR
+	0AL
+	AR+AL+(1,,1)AMAOSTORES
+	AOxLPROG BRANCH
+;ARITHMETIC DECREMENT AND LOGICAL TEST INSTRUCTIONS
+
+As in the AOxx instructions, the TC is set up to test for the operand
+which  will  become  0 (i. e. 1), and the original sign is XORed with
+CRY1 to determine the result sign, although the sense is opposite  in
+this  case due to the subtract. A special control is used to simulate
+a 1 on the AL side of the TC, when a 0 is actually present, since the
+extra  time for a hardware literal through the SL cannot be afforded.
+The equations follow:
+
+	-	F
+	L	(~R0~CRY1)(R0CRY1)
+	E	TCE
+	LE	TCE(~R0~CRY1)(R0CRY1)
+	A	T
+	GE	(~R0CRY1)(R0~CRY1)
+	N	~TCE
+	G	~TCE((~R0CRY1)(R0~CRY1))	
+
+SOxx/	;OPAR,SOSx:OPBR	APPROPRIATE OPERAND
+	SP(STROBE CRYFLGS)	;SET FLAGS
+	0AL			;A REASONABLE APPROXIMATION TO 1
+	RAR
+	AR-1AMAOSTORES	;DECREMENT AND STORE
+	SOxxPROG BRANCH
+
+The logical test instructions use another part of the TC, called TCM,
+to perform the all-masked-bits-equal-0 test, while using the  ALU  in
+boolean mode to perform the appropriate modification.
+
+Txxx/	;OPBL	OPAR
+	TSTSRCAL			;L OR SL (SWP IF TLxx, TSxx)
+	RAR				;WORD TO TEST
+	TxxDEC(AL,AR)AMAOSTORES	;DO APPROP BOOLEAN MODIFICATION
+	TxxxPROG BRANCH		;BRANCH COND FROM TC
+;RANDOM BRANCHES - UUO'S
+
+EUUO/	IRMAHL			;SETUP HDWLIT FOR IR
+	CM(EXEC PROC-PAGE)SLALMTAOSMA
+	AOR			;ADDRESS OF UUOTRAP
+
+	RAR
+	AR+1AMAO		;SETUP FOR FETCH
+	IMA FROM AO
+	HLSRQSOSM		;STORE INSTR IN MEM
+	@XPSW
+
+UUUO/	;HOLD IBOX
+	IRMAHL
+	CM(USER 40)SLALMTAOSMA
+	AOR
+
+	RAR
+	AR+1AMAO
+	IMA FROM AO
+	XCT FROM IMA
+	HLSRARMTAOSM	;INSTR
+
+JRST/	SP(JRST)		;SPECIAL ACTION FOR AC BITS
+	CAxAPROG BRANCH
+
+JFCL/	SP(JFCL)		;& CLEAR FLAGS
+	JFCLPROG BRANCH	;TEST SPECIAL COND
+
+XCT/	;Handled entirely in IBOX. (ALMOST)
+
+PUSHJ/	;OPAR
+	SP(PUSHTST)		;MAYBE SET PDLOV
+	RAR
+	0AL
+	AR+AL+(1,,1)AMAOSA	;UPDATE PNTR
+	HLSRQSOSM		;STORE PC ON PDL
+
+POPJ/	;OPAR		C(AC)
+	SP(POPTST)			;CRY0~CRY1  PDLOV
+	RAR
+	-1SLAL
+	AR+AL(CRYINH)AMAOSA		;DECREMENT BOTH HALVES
+	CAxAPROG BRANCH		;UNCONDITIONAL XFER
+
+;JSR,JSP,JSA,JRA
+
+JSR/	HLSRARMTAOSM		;PC TO MEMORY
+	CAxAPROG BRANCH
+
+JSP/	;WILL STORE AC
+	HLSRARMTAOSA		;STORE IN APPROP PLACE
+	CAxAPROG BRANCH
+
+JSA/	;OPAR		AC
+	;OPBL		E	HOLD IBOX
+	L.SWPSLAL			;E IN LH
+	HLSRAR
+	MT(AL,,AR)MTAO			;COMBINE E WITH PC
+	RELEASE IBOX
+
+	RSRQSOSM			;STORE OLD AC IN MEM
+	AOSA				;STORE <E,,PC> IN AC
+	CAxAPROG BRANCH
+
+JRA/	;OPBL				;C(LH AC) IN OPB
+	LALMTAOSA
+	CAxAPROG BRANCH
+
+;LOGICAL SHIFTS AND JFFO
+
+Logical  shifts  are simple since the shifter rotates the double-word
+quantity AC,0 or AC,AC+1 the appropriate amount, and the masker takes
+care  of shifting in the appropriate number of zeroes. The only thing
+done conditionally is adding 72 to the shift count if it is  negative
+(thus  rotating left 72-N) both single and double shifts use the same
+microinstruction. Differing only in data supplied  by  the  IBOX  and
+what gets stored.
+
+LSH/	;OPAL	0M	AC,0
+	SHFSC
+	SHFMS
+	LALSHLAOSA		;STORE HIGH RESULT
+
+LSHC/	;OPAL	OPBM	AC,AC+1
+	SHFSC
+	SHFMS
+	LALSHLAOSA		;STORE HIGH RESULT
+	MQSHRSOSA2		;STORE LOW RESULT
+
+JFFO works by using the normalizer to  count  the  number  of  shifts
+necessary  to  left  adjust the number in AC. Since it tries to place
+the high-order significant bit in bit 1, it must be incremented to be
+the  actual  number  of  leading zeroes. Also, this is only valid for
+positive numbers, but if AC is negative, the result is  simply  0.  A
+result  of  0 is also forced if AC is entirely 0. Naturally, a second
+cycle may be necessary if required by the normalizer (nonzero  number
+with more than 9 leading zeroes), but this fortunately does not delay
+the program branch condition, which is simply a jump on nonzero.
+
+JFFO/	;OPAL
+	;0M
+	DNER&DNSC&DNMS	;EVERYBODY GETS THE NORMALIZER
+	0EAL&EAL+ER+1EAEO	;OFFSET BY 1 FOR RESULT
+	LALSHL&0QSHR	;AC,0 TO THE SHIFTER
+	0AR			;FOR BRANCH TEST
+	SHLAOL		;WRAP AROUND FOR POSSIBLE SECOND SHIFT
+	@JFFO2,L0L=0:@JFFOZ	;SHIFT SOME MORE, OR ZERO
+	CAxNPROG BRANCH	;BRANCH IF L0
+
+JFFO2/	EOELEAL		;PARTIAL NORMALIZER OUTPUT
+	DNER			;REST OF NORMALIZE
+	EAL+EREAEO
+	EAEXP&EXPAOSA2	;COMBINE AND STORE (OFFSET OF 1 ADDED IN LAST CYCLE)
+
+JFFOZ/	0ALMTAOSA2
+;ROTATES
+
+Rotates  are  simple  in  principle,  since that is the basic way the
+shifter operates. However,  there  is  a  complication  arising  from
+compatibility problems with PDP-10 programs which depend upon rotates
+of up to 256 places operating correctly (the maximum legal shift with
+the Super Foonly shifter is 79 places left or 72 places right (due to
+the 72-N lossage)).  Therefore,  the  microcode  tests  for  oversize
+shifts,  and,  upon  detecting  one,  takes  as  many extra cycles as
+necessary, counting down (up?) the shift count in steps of 72,  until
+it is within range (while doing no shifting).
+
+ROT/	;OPAL	OPAR
+	SHFSC&SHFER
+	0EAL&EAL+EREAEO	;SAVE SHIFT COUNT IF WE DON'T MAKE IT
+	LALSHL		;SET UP HIGH
+	RSRQSHR		;AND LOW WORDS
+	SHLAOSA
+	@{DONE},SHF110:@ROTx2
+
+ROTC/		;OPAL	OPBR
+	SHFSC&SHFER
+	0EAL&EAL+EREAEO	;SAVE SHIFT COUNT IF WE DON'T MAKE IT
+	LALSHL		;SET UP HIGH
+	RSRQSHR		;AND LOW WORDS
+	SHLAOSA&SHRSOSA2
+	@{DONE},SHF110:@ROTx2
+
+ROTx2/	EOEL&EOSC		;GET NEW COUNT
+	DELTA72ER		;+/- 72 (WITH SIGN OF MA)
+	EAL-ER+1EAEO		;IN CASE WE ARE STILL LOSING
+	LALSHL	;SET UP HIGH
+	RSRQSHR		;AND LOW WORDS
+	SHLAOSA&SHRSOSA2
+	@{DONE},SC110:@ROTx2
+
+;ARITHMETIC SHIFT SINGLE
+
+ASH works by doing a double length shift with AC as  the  high  order
+word and zero (left) or sign bits (right) in the low order word. When
+a negative number is rightshifted more than 36 places, the result  is
+gronked  to  -1.  The  masker  forces  a  zero result from other long
+shifts. The sign bit is preserved by bringing it  through  the  adder
+into  AO.  Overflow  is  tested  by  using the normalizer to find the
+number of shifts necessary to left adjust the significant  part,  and
+if  a  shift  greater  than  this  amount  is  specifed,  overflow is
+indicated. If a 2-cycle normalize is needed, the shift  count  low  3
+bits  are  gated off so that a shift of the appropriate multiple of 8
+is done on the first cycle. On the second  cycle,  the  low  3  bits,
+cycled  around  through  ER  & EA are used to complete the shift and the  test.
+ASH/	;OPAL	0R	0M
+	MSDNFC			;COMPARE SHIFT WITH NORMALIZER
+				;OFFSET IF NEG, POS: FLUSH LOW 3 BITS
+				;IF 2-CYCLE NORMALIZE NEEDED
+				;SET UP TO MASK UNLESS RIGHT SHIFT NEG
+				;TEST FOR OVERFLOW
+				;~FCMSLT~(L=0M=0)  COMPARATOR  SHIFT LEFT  ~ ALL 0
+				;DN GATE - FLUSH LOW THREE BITS IF LEFT SHIFT 8
+	SHFSC&SHFMS		;MA OR MA+110
+	LALSHL
+	ALAM			;SET UP TO PASS SIGN THRU
+	MSR
+	SR.L!-1QSHR		;MA18L0:-1QSHR - (APPROP LOW WORD)
+	SHL(AM0)!-1AO		;SHIFT44MA18L0:-1AO (DON'T SHIFT SIGN, CLOBBER IF LONG)
+	SHR.RSO
+	AOL&SOM
+	AOSA
+	@ASHC2,MA18:@{DONE}
+;ARITHMETIC SHIFT DOUBLE
+
+ASHC  is  very  much  like  ASH, except for a few complications which
+arise from shifting 2 words. One problem is shifting around  the  the
+low  word  sign  bit,  which  is handled entirely in data paths which
+shift the low word left one before the shifter and  right  one  after
+it, thus concatenating the two magnitudes. The right one path into SO
+also gets its sign bit from the adder, thus making it a copy  of  the
+high  sign  bit. The other difficulty with ASHC is that the mechanism
+for  shifting  in  ones  when  rightshifting  a  negative  number  by
+clobbering  the  low word to -1 produces an incorrect low word and an
+extra cycle must be taken here, as well as for the normalizer.
+
+ASHC/		;OPAL	OPBR	OPBM
+	MSDNFC		;COMPARE SHIFT WITH NORMALIZER
+			;OFFSET IF NEG, POS: FLUSH LOW 3 BITS
+			;IF 2-CYCLE NORMALIZE NEEDED
+			;SET UP TO MASK UNLESS RIGHT SHIFT NEG
+			;TEST OVERFLOW
+			;~FCMSLT~(L=0M=0)  COMPARATOR  SHIFT LEFT  ~ ALL 0
+			;DN GATE - FLUSH LOW THREE BITS IF LEFT SHIFT 8
+	SHFSC&SHFMS	;MA18L0: DISABLE MASKER
+	LALSHL
+	ALAM		;SET UP TO PASS SIGN THRU
+	MSR
+	SR.L!-1QSHR	;MA18L0:-1QSHR (APPROP LOW WORD)
+	SHL(AM0)!-1AO	;SHIFT44MA18L0:-1AO
+			;DON'T SHIFT SIGN, CLOBBER IF LONG
+	SHR.RSO
+	AOL&SOM
+	@ASHC2,MA18:@ASHC3
+
+;ARITHMETIC DOUBLE SHIFT - EXTRA CYCLE
+;LEFT SHIFT LONGER THAN EIGHT
+ASHC2/	SHFSC			;REST OF SHIFT
+	SHFMS		;ONLY LOW 3 BITS (MSDN(6-8))
+	MSDN(6-8)FC	;FINISH OVERFLOW TEST
+	LALSHL	;PARTIALLY SHIFTED RESULT
+	MSR		;LOW PART
+	SR.LQSHR
+	ALAM		;TO GET ORIGINAL SIGN BIT
+	SHL(AM0)AO	;HIGH-ORDER RESULT (SIGN UNCHANGED)
+	AOSA
+	SHR.RSOSA2	;STORE LOW WORD
+
+;RIGHT SHIFT - COMPUTE LOW WORD
+
+ASHC3/	SP(ASHC3)
+	SHFSC&SHFMS	;MA18L0: MASKER DISABLE
+	ALSHL
+	ALAM		;FOR SIGN BIT
+	RSR
+	SR.L!-1QSHR	;LONG-RIGHT(L):-1QSHR	;SHIFT 44
+	SHR.R!-1SO	;SHIFT110:-1SO
+	AOSA		;SHIFTED HIGH WORD FROM PREVIOUS CYCLE
+	SOSA2		;SHIFTED LOW WORD FROM THIS CYCLE
+
+;BYTE POINTER INCREMENT
+
+IBP  uses  the  exponent  data paths to update the position field and
+test for overflow, giving this information to the main  adder,  which
+may  increment  the address field. A special path is used to shift EA
+left 3 places and concatenate it with R6-8 (part of the  size  field)
+so that it can be inserted in AO0-8 as if it were an exponent.
+ 
+IBP/	;OPBR			;POINTER WORD
+	BYTEFC			;Compare position and size fields to determine overflow
+				;This also informs I-box that pointer overflows
+				;Automatically supressed if BIS flag on.
+
+	R[0-5]ELEAL		;POSITION FIELD
+	R[6-11]ER		;SIZE FIELD FOR SUBTRACT
+	EAL-ER+1EAEO		;NEW POSITION
+				;SELECTING "BYTEFC" CAUSES FOLLOWING:
+				;EAL-ER+1|EALEA : BIS
+				;EA|BYTOVEO :~FC~BIS
+				;AR|AR+1AM :~FC~BIS
+	EABYTEXP		;EA|BYTOVEXP : ~FC~BIS
+	RAR			;POINTER WORD
+	AR!AR+1AM		;~FC~BIS:AR+1(CRYINH)AM (INCREMENT ADDRESS IF OVERFLOW)
+	AM(EXP)AOSTORES	;STORE RESULT
+;BYTE LOAD
+
+LDB uses the exponent data paths to generate  the  appropriate  shift
+and mask sizes directly from the position and size fields, thus doing
+the entire operation in one cycle. A dummy first cycle is  taken  due
+to  the  fact  that  both  the  pointer and data come through the OPB
+register in the IBOX and cannot be passed to the  EBOX  on  the  same
+cycle.  This  does  not  usually  actually  cost  any time, since the
+pointer is available at least one cycle before the data anyway,  with
+the  only possible saving being when a LDB follows a long instruction
+that gives the IBOX time to do both fetches. Too bad (sniffle).
+
+LDB/	;OPBR	GET POINTER AT START
+	OPBL		;DATA WORD (WAIT IF NOT AVAILABLE)
+	WAIT FOR DATA
+
+LDB2/	;HERE IS WHERE WE DO THE WORK
+	SP(CLR BIS)	;CLEAR BIS FLAG
+	44-R[0-5]SC	;SHIFT RIGHT 36+POS (LEFT 72-36-POS)
+	R[6-11]MS	;MASK OFF <SIZE> BITS AT LOW-ORDER END
+	LALSHL	;DATA TO SHIFT
+	0QSHR
+	SHRSOSA	;STORE RESULT
+
+ILDB  is  essentially LDB with the first cycle combined with IBP. The
+overflow information is also sent to the IBOX to change which word to
+fetch.  This  information  is  available early enough in the cycle to
+determine the carry into the index adder on this cycle, so that  only
+one cycle need be lost.
+
+ILDB/	;OPBR		;POINTER WORD
+	SP(SET BIS)	;SET BIS FLAG IN CASE OF INTERRUPT OR FAULT
+	BYTEFC		;COMPARE POSITION AND SIZE FIELDS TO DETERMINE OVERFLOW
+	R[0-5]ELEAL		;POSITION FIELD
+	R[6-11]ER		;SIZE FIELD FOR SUBTRACT
+	EAL-ER+1EAEO		;NEW POSITION
+				;SELECTING "BYTEFC" CAUSES FOLLOWING:
+				;EAL-ER+1|EALEA : BIS
+				;EA|BYTOVEO :~FC~BIS
+				;AR|AR+1AM :~FC~BIS
+	EABYTEXP		;EA|BYTOVEXP : ~FC~BIS
+	RAR		;POINTER WORD
+	AR!AR+1AM	;~FC~BIS:AR+1(CRYINH)AM (INCREMENT ADDRESS IF OVERFLOW)
+	AM(EXP)AOSM	;STORE RESULT
+	AOR		;RECIRCULATE NEW POINTER
+	OPBL		;DATA (WAIT IF NOT AVAIL)
+	WAIT FOR DATA
+	@LDB2		;DO LDB
+;BYTE DEPOSIT
+
+DPB requires 2 EBOX cycles for actual computation, although it  would
+need  the  extra  cycle  for the same reasons as LDB does anyway. The
+first cycle is used to generate a mask which is  then  shifted  along
+with  the byte to be deposited on the second cycle. This mask is then
+used in conjunction with the MT to combine  the  selected  byte  bits
+with the rest of the data bits.
+
+DPB/	;OPAL		AC (BYTE)
+	;OPBR		POINTER WORD
+	SP(SET BIS)	;Compatibility (?)
+	R[0-5]ELEALEAEO	;REMEMBER POSITION
+				;(R IS NEEDED FOR DATA NEXT CYCLE)
+	0SC		;NO SHIFTING
+	R[6-11]MS	;USE SIZE TO GEN MASK
+	-1QSHRSOM	;STARTING WITH ALL 1'S
+	OPBR		;DATA WORD (MAYBE WAIT)
+	WAIT FOR DATA
+
+DPB2/	SP(CLR BIS)	;SINCE WE GOT THROUGH
+	EOSC		;SHIFT MASK&DATA BY <POS>
+	EOMS		;ALSO AVOID WRAPAROUND INTO MASK WORD
+	LALSHL	;BYTE TO BE SHIFTED
+	RAR		;DATA WORD
+	MQSHR		;MASK TO BE SHIFTED
+	MT(AR,SHL:SHR)MTAOSTORES	;SEL BYTE OR DATA BY MASK & STORE RESULT
+
+IDPB essentially combines the functions of IBP into the  first  cycle
+of DPB. The overflow information is passed to the IBOX as in ILDB.
+
+IDPB/	;OPAL		AC (BYTE)
+	;OPBR		POINTER WORD
+	SP(SET BIS)	;IN CASE WE DON'T MAKE IT
+	BYTEFC		;COMPARE POSITION AND SIZE FIELDS TO DETERMINE OVERFLOW
+	R[0-5]ELEAL		;POSITION FIELD
+	R[6-11]ER		;SIZE FIELD FOR SUBTRACT
+	EAL-ER+1EAEO		;NEW POSITION
+				;SELECTING "BYTEFC" CAUSES FOLLOWING:
+				;EAL-ER+1|EALEA : BIS
+				;EA|BYTOVEO :~FC~BIS
+				;AR|AR+1AM :~FC~BIS
+	EABYTEXP		;EA|BYTOVEXP : ~FC~BIS
+	0SC		;NO SHIFTING
+	R[6-11]MS	;USE SIZE TO GEN MASK
+	-1QSHRSOM	;STARTING WITH ALL 1'S
+	RAR		;POINTER WORD
+	AR!AR+1AM	;~FC~BIS:AR+1(CRYINH)AM (INCREMENT ADDRESS IF OVERFLOW)
+	AM(EXP)AOSTORES	;STORE RESULT
+	OPBR		;DATA WORD (MAYBE WAIT)
+	@DPB2		;FINISH DPB
+;BLOCK TRANSFER
+
+BLT/	;OPAL		(SOURCE,,DESTINATION)
+	;OPBM		(0,,LAST DESTINATION)
+	LSRAR		;S,,D
+	SRQSOM	;PUT S,,D IN M PRIOR TO SAVING IN EXTENSION REGISTER
+	MSLAL		;PRESERVE 0,,DE IN AL (ALSO SOURCE OF ZEROS IN LH)
+	MT(AL,,AR)MTAOSMA	;FORM 0,,D AND SETUP STORE ADDRESS
+
+	AOAR		;0,,D
+	AR-AL+1AMAOM	;D-DE (-LENGTH OF XFER+1)
+	MSLESHEXSOE	;TUCK AWAY S,,D IN SAFE PLACE FOR FAULT RECOVERY
+
+	L.SWPSLAL	;D,,S
+	LSRAR
+	AR-AL(CRYINH)AMAOL	;S-D-1 IN LEFT HALF
+
+BLTDSP/	MSRARMTAOL	;SHUFFLE COUNT INTO L (FOR TESTING)
+	MQ		;SAVE ORIGINAL COUNT IN Q
+	OPBR		;GET FIRST WORD
+	WAIT FOR DATA
+	BLTDSP(BLT1,BLT2)BRANCH
+			;~CRY0(L)L[0-16]=0:[
+			;~L17:@BLT1,	;SOURCE = DESTINATION+1
+			;L17:@BLT2]	;SOURCE = DESTINATION+2
+
+BLT0/	RSRQSOSM	;DATA WORD IN LEFT PART OF SHIFTER
+	CW(STCHK WAIT)
+	LAL&0AR
+	AR+AL+1AMAOL	;UPDATE COUNT
+	OPBR		;GET NEXT WORD
+	WAIT FOR DATA
+	@BLT0,		;KEEP GOING
+	~L0:@DONE	;LAST CYCLE, THEN DONE
+	TRAP(BLTFLT)	;EXCEPTION TRAP IF PAGE FAULT OR PI REQ
+;BLT - SPECIAL CASES
+
+;OVERLAP BY ONE, WIPE CORE
+BLT1/	RSRQSOSM	;STORE AWAY WORD
+	CW(STCHK WAIT)
+	LAL&0AR
+	AL+AR+1AMAOL	;UPDATE COUNT
+	@BLT1,
+	~L0:@DONE
+	TRAP(BLTFLT)	;IF PIREQ OR PAGE FAULT
+
+;OVERLAP BY TWO, WIPE WITH ALTERNATE WORDS, #1 AND #2
+BLT2/	RSRQSOSM	;STORE AWAY WORD
+	CW(STCHK WAIT)
+	SOM		;SAVE WORD #1
+	LAL&0AR
+	AL+AR+1AMAOL	;UPDATE COUNT
+	OPBR		;WORD #2
+	WAIT FOR DATA
+	@BLT2A,
+	~L0:@DONE
+	TRAP(BLTFLT)	;IF PIREQ OR PAGE FAULT
+
+;LOOP TO STORE ALTERNATE WORDS
+BLT2A/	RSRQSOSM	;STORE AWAY WORD
+	CW(STCHK WAIT)
+	LAL&0AR
+	AL+AR+1AMAOL	;UPDATE COUNT
+	@BLT2B,
+	~L0:@DONE
+	TRAP(BLTFLT)	;IF PIREQ OR PAGE FAULT
+
+BLT2B/	MQSOSM	;STORE AWAY WORD
+	CW(STCHK WAIT)
+	LAL&0AR
+	AL+AR+1AMAOL	;UPDATE COUNT
+	@BLT2A,
+	~L0:@DONE
+	TRAP(BLTFLT)	;IF PIREQ OR PAGE FAULT
+;BLT FAULT RECOVERY
+
+BLTFLT/	SOEAOR	;GET BACK ORIGINAL S,,D
+	QSOM		;GET BACK STARTING COUNT
+
+	LSRAR		;CURRENT COUNT
+	MSLAL		;OLD COUNT
+	AR-AL+1AMAOL	;NUMBER OF WORDS TRANSFERED
+
+	LSRAR
+	L.SWPSLAL
+	MT(AL,,AR)MTAOL	;#DONE,,#DONE
+
+	LAL
+	RAR
+	AR+AL(CRYINH)AMAOSA2
+	CW(INH PC+1)
+	@{DONE},FAULT:@{TRAP}
+			;TRAP IF PAGE FAULT OCCURED, OTHERWISE STOP BUT
+			;DON'T INCREMENT PC
+;MULTIPLY GENERAL DESCRIPTION
+
+Super Foonly uses a four bit at a time multiply algorithm which takes
+an  average  of  13.75  cycles to multiply two 36-bit random numbers,
+somewhat better if  the  multiplier  is  a  small  number.  The  best
+possible  time  is  11  cycles;  the worst possible is 21 cycles. The
+basic technique is to use each 4-bit byte of the multiplier to select
+a multiple of the multiplicand to be added to the partial product. If
+this were done in the obvious fashion, it would require a  choice  of
+16 multiples to be available. It is possible, however, to get by with
+only the even multiples by making use of the subtract  capability  of
+the ALU (thus trading one set of 16 for another, more convenient, set
+of 16). This is accomplished by looking ahead during  each  cycle  at
+the low-order bit of the next (adjacent to the left) byte. If it were
+desired on this cycle to add the N times multiple to the product, and
+the  next  byte is odd, we instead add the (N-16) times multiple this
+time (will be 0), and use the (N+1) times multiple next time.  Since
+the next byte is 16 times more significant than the current one, this
+is equivalent to subtracting 16 and then adding 16, so the result  is
+the  same.  Even  with  only  8  multiples,  there is still a problem
+generating them all. The 16*, 8*, 4*, and 2* multiples are  available
+through  the  L and SL (from L right 1, 2, or 3 places) inputs to AL.
+In addition, one setup cycle is taken to compute the 12* multiple and
+place  it  in R, which, via the SL (R right 0 or 1), provides the 12*
+and 6* multiples. Remaining are the 10* and 14* multiples, which  are
+handled  by  taking  2 cycles for the iterations in which they occur,
+adding first 2* or 6*, then 8* on the second cycle. This accounts for
+most  of  the  speed  variation  mentioned,  with the average figures
+assuming extra cycles 25% of the time. The remaining variation is due
+to the low-order multiplier bit. Since the low-order bit of each byte
+is  partially  handled  in  the  previous  cycle,  there  must  be  a
+corresponding  operation  before  the  first  iteration to handle the
+low-order bit of the first byte (i. e. of the  word).  This  involves
+subtracting  the  16* multiple if the low-order bit is a one. This is
+tested during the 12* computation, so that the extra cycle  is  taken
+only  with  that  bit on, thus making it only a half cycle for random
+data. The sign bit is saved to logically extend it when  the  decoder
+lookahead tries to look at bit -1, in order to make negative
+multipliers work correctly.
+
+;MULTIPLY SETUP
+
+The first multiply setup cycle computes the  12*  (12/16,  I.e.  3/4)
+multiple  of  the  multiplicand by subtracting 1/4 (right 2) from the
+original. The result is stored in R. Several other things also happen
+in  this  cycle.  The  low-order bit of the multiplier is examined to
+determine whether a second  setup  cycle  is  needed  to  perform  an
+initial  subtract.  The low-order 5 bits are examined by the multiply
+decoder to determine the appropriate multiple for the first iteration
+(the decoder always runs one step ahead). The multiplier is shifted 4
+places to bring the next byte into  position  for  the  decoder.  The
+multiplier  sign  is saved
+for later use. The iteration count is initialized to  -9  (or  -7  if
+entered from FMPxx).
+	
+xMULx/	;OPAL		AC
+	;OPBM		MEM		IMULX: 1FLAG
+	SP(MPY INIT)	;SAVE AWAY INFO FOR LATER
+	L.R2SLAL	;1/4 AC
+	LSRAR		;AC
+	AR-AL+1(EX)AMAOR	;3/4 ACR
+	<104>CMSSC	;RIGHT 4 PLACES
+	MQSHRSOM	;SHIFT MULTIPLIER
+	<767>CMMELEAL	;-9
+	EALEAEO
+	RETURN(MUL5)
+	@MUL1,~M35:@MUL3	;SKIP SECOND SETUP CYCLE FOR EVEN MULTIPLIER
+
+The second setup cycle is  taken  if  the  multiplier  was  odd,  and
+initializes  the  partial product to -16* the multiplicand (logically
+1*).
+	
+
+MUL1/	LAL		;1* (OR 16*)
+	0AR
+	AR-AL+1(EX)AMAO	;INIT PARTIAL PRODUCT
+
+;MULTIPLY ITERATION
+
+In  the  main  loop  of  the  multiply,  various  multiples  of  the
+multiplicand  are  added to (or subtracted from) the partial product,
+which is shifted right each time to decrease the significance of  the
+earlier  additions.  Bits of partial product are shifted into the low
+word as the space is  vacated  by  the  multiplier,  which  is  being
+shifted  out  and  discarded.  To do this, the low-order 4 bits of AO
+(the extension) should logically go into the high-order 4 bits of SO.
+This  would  obviously slow things down, however, so they are instead
+put into the extension of M, and then on  the  next  cycle  into  the
+extension  of Q, and finally into the high-order 4 bits of SO through
+one of the special shifter bypass paths. Thus the low-order word runs
+one  byte  behind  until  it  catches up during cleanup. On the first
+iteration, if the multiplier was even, 0AR is forced since  a  cycle
+was  not  taken  to  produce the initial partial product in AO. ER is
+counted up by one each cycle until the cycle which  is  entered  with
+ER=-1  (becoming  0),  which  falls  out of the loop into the cleanup
+cycle.
+
+;MUL1,,MUL3
+;MUL4,,MUL5 (FOR FMP4,FMP1)
+;MUL1/	.|E|E+1	E=MUL4
+;MUL4/	.+1|E	E=MUL3
+
+MUL3/	;BRANCH=MUL:	M 31-35MPY DECODER
+	SL(MD)AL			;SELECT MULTIPLE
+	AO.R4!0AR			;SHIFT PARTIAL PRODUCT (INIT IF NECESSARY)
+					;FIRST CYCLE 0AR IF LSB=0
+	AR+AL(EX)!AR-AL+1(EX)(~MDADD)AMAO
+					;ADD OR SUB NEW MULTIPLE
+	<104>CMSSC			;RIGHT 4
+	MQSHR				;SHIFT LOW PART
+	SHR(MUL AO[36-39],SO0[0-4])SO	;INSERT PRODUCT BYTE INTO SHIFT RESULT
+					;SPECIAL SO SHIFT PATH ENABLED BY MPY INIT
+	SOM				;RECIRCULATE AND GET PRODUCT BYTE FOR NEXT CYCLE
+	EOER				;ITERATION COUNT
+	0EAL
+	EAL+ER+1EAEO			;COUNT IT OUT
+	MUL({RETURN})BRANCH		;~MD LONG~ER=-1: @MUL3 (.)
+					;MDLONG: @{RETURN}  (E)
+					;~MDLONGER=-1: @{RETURN}+1 (E+1)
+
+MUL4/	L.R1SLAL			;8*
+	AOAR				;NOTICE HOW WE CLEVERLY AVOID SHIFTING
+	AR+AL(EX)!AR-AL+1(EX)(~MDADD)AMAO	;ADD OR SUB NEW MULTIPLE
+	SOM				;UPDATE NEW BYTE, DO NOT SHIFT
+	ER=-1:@MUL5,@MUL3
+
+;MULTIPLY CLEANUP
+
+Here  is  where  we  shuffle  around the results into the appropriate
+format for whichever flavor of multiply we're doing. There is  now  a
+low  word  which needs to have one more byte "shifted" into it, and a
+high word which is one place too far to the right because there isn't
+presently  a  "hole"  between the two words for the low sign bit. For
+the former, one more shift cycle is sufficient, with  the  difference
+that the sign from the high-order word is inserted into the low sign.
+What happens to the high word depends on the type of multiply.  In  a
+MULx  or  FMPxx,  it  has  to be shifted left one, recovering the bit
+which is in the sign of the low word and also  bit  36  of  the  high
+word.  The  latter source is utilized by doing a 40-bit left shift by
+one with the ALU. In an IMULx, the relevant part  of  the  high  word
+(0-36) has to be tested for all 0's or all 1's, since any other value
+means overflow. The all 1's test is done by adding 1 to the high word
+and  testing  the  carry out. The all 0's test uses the TC, with 0 in
+AL. Since these are both 36-bit tests, they  must  be  combined  with
+explicit tests of bit 36 for a 37-bit test.
+
+MUL5/	SP(MUL CLNUP)		;MUL OV TST (HAIRY TC/ADDER/AR COND FOR IMULx, -*-=- FOR MULx)
+	0AL			;PREPARE FOR ZERO TEST
+	AO.L(AO3635)AR
+	AR!AR+1AMAO		;(+1 IF FLAG (IMULX) ON MUL CLNUP)
+				;SHIFT LEFT OR TEST FOR ALL 1'S
+	<104>CMSSC		;RIGHT 4
+	MQSHR			;ONE LAST SHIFT
+	SHR(MUL AO[0,37-39],SO0[0-4])SO	;INSERT LAST BYTE AND SIGN
+	AOSTORES		;STORE APPROPRIATE RESULTS
+	SOSA2
+
+;FMP4,,FMP1	(FOR MUL ITERATION BRANCH - MUL3)
+
+FMP1/	SP(FMP CLNUP)
+	AO.L(AO3635)AR	;SHIFT PRODUCT OVER TO LEAVE ROOM FOR LOW SIGN
+	ARAMAOL
+	<104>CMSSC		;SHIFT RIGHT FOUR
+	<8>CMMMS		;MASK OFF 8 GARBAGE BITS TO RIGHT OF LOW FRACTION
+	MQSHR
+	SHR(MUL AO[0,37-39],SO0[0-4])SO	;INSERT LAST BYTE AND SIGN
+	EXELEALEAEO		;SHUFFLE AROUND EXPONENT FOR NORMALIZE
+	@NORM,AR NORMAL:@NORM2	;SAVE CYCLE IF TRIVIALLY NORMALIZED
+
+FMP4/	L.R1SLAL		;8*
+	AOAR			;NOTICE HOW WE CLEVERLY AVOID SHIFTING
+	AR+AL(EX)!AR-AL+1(EX)(~MDADD)AMAO
+				;~MDADD:AR-AL+1(EX)AMAO	;ADD OR SUB NEW MULTIPLE
+	SOM			;UPDATE NEW BYTE, DO NOT SHIFT
+	ER=-1:@FMP1,@MUL3
+
+;PRODUCT FORMAT
+; (0-8) - SIGN BITS, (9-35,1-27) - FRACTION, (28-35) - ZERO
+;DIVIDE - ITERATION SETUP
+
+DIVx/	;OPAR		C(AC) HIGH DIVIDEND
+	;OPBL		C(E) DIVISOR
+	SP(STROBE NDIV)	;REMEMBER SIGN OF R
+	OPBLE		;LOW DIVIDEND
+	OPBM		;IN CASE SIGN IS RIGHT
+	@DIV2,R0:@DIV1	;SKIP NEGATE IF POSITIVE
+
+DIV1/	RSLAL&LESLE	;DIVIDEND
+	0AR&0SRE	;0 FOR UNGATED SIDE OF ALU
+	AR-AL+1(D)AMAOR	;NEGATE DOUBLE LENGTH
+	AMESOM	;WRAP LOW PART BACK TO M
+
+DIV2/	RAR		;DIVIDEND
+	LAL		;DIVISOR
+	AR+AL!AR-AL+1(~L0)AMAO	;SUBTRACT MAGNITUDE OF DIVISOR
+	MSR		;LOW PART OF DIVIDEND
+	SR.LQSOM	;SQUEEZE OUT SIGN OF LOW WORD
+	<735>CMMER
+	0EAL&EAL+EREAEO	;SETUP FOR 35 BITS
+
+;DIVIDE - ITERATION
+DIV3/	SP(DIV CYC)		;TEST NODIV (QBIT~CYCFLG (QBIT IS ~CRY0))
+	EOER&0EAL		;ITERATION COUNT
+	EAL+ER+1EAEO		;COUNT OUT
+	AO.L(M035)AR
+	LAL
+	AR+AL!AR-AL+1(AO=L0)AMAO		;SUBTRACT |DIVISOR| (UNLESS MISSED LAST TIME)
+	AOR			;SAVE REMAINDER IN CASE LAST STEP
+	MQSHR		;SHIFT LOW FRACTION AND BRING IN QUOTIENT BIT
+	<1>CMSSC
+	SHR(QBIT35)SOM	;(Q[33-35],QBIT)SO[32-35]
+	~ER=-1:@DIV3,@DIV4
+
+DIV4/	SP(DIV CYC)
+	<1>CMSSC			;PICK UP LAST QUOTIENT BIT
+	MQSHR
+	SHR(QBIT35)SOM	;(Q[33-35],QBIT)SO[32-35]
+	RSLAL			;REMAINDER
+	0AR			;FOR UNGATED SIDE OF ALU
+	AR+AL!AR-AL+1(NDIV)AM	;RESTORE REMAINDER SIGN
+	AMAO
+	@DIV5,CRY0(L):@DIV6
+
+DIV5/	SP(DIV QUOT)		;IF +QUOTIENT MAGNITUDE=SETZ, NODIV
+	MSLAL			;QUOTIENT
+	0AR			;FOR UNGATED SIDE OF ALU
+	RSRQSOSA2		;SHUFFLE REMAINDER THROUGH FOR STORE
+	AR+AL!AR-AL+1(NDIVL0)AMAO	;QUOTIENT WITH CORRECT SIGN
+	AOSTORES		;AC OR C(E)
+
+DIV6/	LAL&RAR		;CORRECT FOR MISS ON LAST CYCLE
+	AR+AL!AR-AL+1(NDIVL0)AM	;NDIVL0:AR-AL+1AM
+	AMAOR
+	@DIV5
+;DIVIDE - INTEGER DIVIDE
+
+IDIVx/	;OPAR		DIVIDEND
+	;OPBL		DIVISOR
+	SP(STROBE NDIV)	;REMEMBER DIVIDEND SIGN
+	RSLAL		;DIVIDEND
+	0AR		;FOR NEGATE
+	AR+AL!AR-AL+1(R0)AMAO	;TAKE MAGNITUDE OF DIVIDEND
+	AOM		;SAVE IN LOW FRACTION POSITION
+
+	LAL
+	0AR
+	AR+AL!AR-AL+1(~L0)AMAO		;-|DIVISOR|
+	<734>CMMER
+	0EAL&EAL+EREAEO	;SETUP FOR 36 BITS
+	@DIV3
+
+;FLOATING ADD/SUBTRACT SETUP
+
+The first step of a floating add or subtract is to determine which of
+the two operands has the smaller exponent so that its fraction can be
+shifted right until its significance is equal to that of the  larger.
+The  complete calculation involves selecting each exponent or its 1's
+complement, depending upon the sign of its operand, comparing the two
+magnitudes  to  determine the larger, and subtracting the larger from
+the smaller (negative for rightshift) while also adding in a constant
+72  to  make  the  shifter  happy. Yes, all this happens in one cycle
+(pant!). The main data paths are not completely idle due to case of a
+subtract.  Although  the adder is capable of subtracting as easily as
+adding, the complementing built into the adder does not take care  of
+any  bits  which may be shifted into the low word from the subtrahend
+(assuming  its  exponent  is  smaller)  and   brought   back   during
+normalization. Therefore subtract is handled by 2's complementing the
+subtrahend before denormalizing, and proceeding from there as  in  an
+add.  This  is  handled in the first cycle by using the main adder to
+supply the memory operand either direct  or  negated  as  the  actual
+second  operand  of  the  add.  Unnormalized floating add also enters
+here, with the difference being to suppress later normalization.
+
+FSBxx_FADxx
+
+FADxx/	;OPAR		AC		;hold I-box
+	;OPBL		MEM		;1  FLAG ON FSB
+	EXPFC			;COMPARE |L0-8| WITH |R0-8|
+	|R[0-8]|ER		;POS EXP TO ER
+	|L[1-8]|ELEAL
+	EAL-ER+1EAEO
+	LAL&0AR		;SETUP FOR
+	AR+AL!AR-AL+1(FLAG)AM	;FLAG: AR-AL+1 (FSBxx)
+	AMAO
+	FC:@FADx1,@FADx2
+
+FSBRI_FADRI
+FADRI/	;OPAR		AC
+	;OPBL		MEM
+	L.SWPSLALMTAOL
+	@FADxx
+;UN-NORMALIZED FLOATING ADD
+
+UFA/	;OPAR	OPBL	AC,MEM	HOLD IBOX
+	SP(UFA)		;SET UFA GRONK FOR NORMALIZE
+	EXPFC		;COMPARE |L0-8| WITH |R0-8|
+	|R[0-8]|ER	;POS EXP TO ER
+	|L[1-8]|ELEAL
+	EAL-ER+1EAEO
+	LAL&0AR			;SETUP FOR
+	AR+ALAMAO
+	FC:@FADx1,@FADx2
+;FLOATING ADD/SUBTRACT - DENORMALIZE
+
+FADx1/	;L(EXP)R(EXP)
+	AOR			;PUT LARGER INTO R
+	OPAL
+	EOER
+	<110>CMMELEAL
+	EAL-ER+1EAEO
+	RELEASE IBOX
+	@FAD1
+
+FADx2/	;R(EXP)>L(EXP)
+	AOL
+	ERER
+	<110>CMMELEAL
+	EAL+EREAEO
+	@FAD1
+	RELEASE IBOX
+
+Having  decided  which  operand  to shift, it is gated (with exponent
+nullified) to the shifter. The low word is filled with sign  bits  to
+shift  in from the left. The leftover sign bits need to be masked off
+by the masker, and unfortunately that cannot be done  on  this  cycle
+since  it  requires  an  offset of 36 to be subtracted from the shift
+count to determine the masker position. That computation is done this
+cycle for the masking which is done on the next cycle.
+
+FAD1/	SP(FAD1)		;AO, SO GRONK
+	L.FPSLALSHL		;STRIP EXP AND GIVE TO SHIFTER
+	0!-1QSHR		;-1Q IF L0 (APPROP SIGN TO LOW WORD)
+	EOSC			;USE COMPUTED SHIFT
+	SHL!-1!0AO		;SH>44L0:-1 , SH>110~L0:0
+	SHR!0SO		;SH>110:0
+	AOL&SOM
+	EOER&<734>CMMELEAL		;SET UP (72-D)-36
+	EAL+EREAEO		;TO ADJUST SHIFT FOR MASKER
+
+;FLOATING ADD/SUBTRACT ARITHMETIC CYCLE AND MAIN NORMALIZE CYCLE(S)
+
+Now that the operands have been scaled appropriately, the  next  step
+is  to do the actual arithmetic. The fractions of the two operands in
+L and R are added together and the result is stored  back  in  L.  As
+previously  mentioned,  the  masking of the low word to eliminate the
+inserted sign bits was deferred until this cycle  to  use  the  count
+computed  on  the last, so that is now done. Finally, the appropriate
+exponent (the larger one) has to be selected as the exponent  of  the
+result. Then flow transfers to the normalize cycles.
+
+	L.FPSLAL	;ONE FRACTION
+	R.FPSRAR	;AND THE OTHER
+	AR+ALAMAOL	;ADDED TOGETHER
+	EOMS&0SC	;MASK ONLY
+	MQSHR		;THE LOW WORD
+	SHR.RSOM	;STORE BACK (RIGHT ONE FOR NORMALIZER)
+	|R[0-8]|ER	;LARGER EXPONENT
+	0EAL
+	EAL+EREAEO	;EXPONENT FOR NORMALIZE
+	@NORM		;NOW TO NORMALIZE
+
+The normalize routine is entered with the number to be normalized  in
+L  and  M (shifted right 1), and the exponent in EO. The first 1 or 2
+cycles do a standard simple floating normalize (no checks  for  -1/2,
+etc.),  including  possibly shifting right if necessary.
+The  exponent  is
+updated   by   subtracting  the  normalize  shift  from  it.
+If the instruction is UFA, the normalizer is forced to avoid
+left shifts
+
+;NORM,,NORM2 (FOR FMP1)
+
+NORM/	NORMNORM
+	FNSC&FNMS	;SHIFT AND MASK FOR NORMALIZE
+	LALSHL	;HIGH WORD
+	MSR&SR.LQSHR	;LOW WORD
+	EOEL&FNER	;GET EXP AND SHIFT
+	ALAM		;FOR SIGN
+	SHL(AM0)AO
+	SHR.RSO	;SHIFT
+	EAL-ER+1EAEO	;AND UPDATE EXP
+	AOL&AOR	;RECYCLE TO BOTH PLACES FOR LAST CYCLE
+	SOM		;ALSO LOW
+	FN LONG(NORM,NORM2)BRANCH	;IF NORM WANTS 2 CYCLES AND NOT ALL ZERO
+;FINAL FLOATING NORMALIZATION
+
+Having completed normalization by the trivial test (L0L9), it is now
+necessary to handle the special cases. If the  high  fraction  is  -1
+(9-35  all  0) and it will not be changed by rounding (if done), then
+it must be shifted right 1 place, since -1 is not a  legal  fraction.
+Also  it  must  be  shifted if the fraction is all 1's (in a positive
+number) and will be changed by rounding,  since  it  would  otherwise
+overflow  its  field.  This shift is done by the SR so that it can be
+combined  with  rounding  into  one  cycle.  The  rounding  condition
+includes  correcting  for  the  1's/2's complement offset in the high
+word, checking for a low  fraction  of  exactly  1/2  in  a  negative
+number,  and  zeroing  the  exponent  if the fraction is 0. The extra
+exponent bit is tested to determine whether overflow  (or  underflow)
+has  occured,  and  appropriate  flags  are  set.  If the fraction is
+nonzero, the exponent is inserted into its field in appropriate form,
+and  the  result  is  stored  where  necessary.  If required, control
+proceeds to  the  long  mode  cycle,  otherwise  the  instruction  is
+finished.
+
+	RNDCRY=ROUNDM1~(M[2-35]=0L0)
+				THE COND TO INCREMENT THE HIGH WORD
+	FNLUZ=(~L0L[9-35]=-1RNDCRY)(L0L[9-35]=0~RNDCRY)
+				THE COND TO SHIFT
+
+NORM2/	RSLAL&0AR		;FOR SIGN
+	ROUND TESTNORM		;SET AROV, FOV IF EO0EO1, ALSO FXU IF EO0~EO1
+				;BUT NOT IF L=0
+	AL+AR(ROUND)AM
+	0EAL&EOER
+	EAL+EREAEO
+	EXP(AL0)EXP		;EXPONENT WITH SIGN OF RESULT
+	AM(EXP)!0(L=0)AO		;L=0:0AO (INSERT EXP UNLESS ALL ZERO)
+	AOSTORES		;INHIBIT IF FNLUZ
+	NORM2(NORMLZ,LONG)BRANCH	;FNLUZ:@NORMLZ (E)
+				;~FNLUZSAC2: @LONG (E+1)
+				;~FNLUZ~SAC2: DONE
+
+;NORMLZLONG	;(FOR NORM2)
+NORMLZ/	ROUND TESTNORM
+	R.R1SLAL&0AR
+	AL+AR(ROUND)AM
+	EOER&0EAL
+	EAL+ER+1EAEO
+	EXP(AL0)EXP
+	AM(EXP)AOSTORES
+	SAC2:@LONG1,@{DONE}
+
+;FLOATING LONG MODE
+
+If the instruction specified long mode, the low word must  be  stored
+(after being shifted if the high word was during the last cycle), and
+an exponent 27 less than that of the  high  word  inserted.  If  this
+causes underflow, the low word must be cleared. It turns out that the
+easiest way to do this is to actually shift the low fraction into the
+high word and simultaneously update the exponent, where this shift is
+by either 27 or 26 if a rightshift was needed.
+
+LONG/	<33>CMSSC		;FOR SHIFT OF 27
+	0ALSHL	;NO HIGH PART AND 0 SIGN
+	MSR&SR.LQSHR	;LOW PART IN APPROPRIATE PLACE
+	EOELEAL	;HIGH EXP
+	<32>CMMER
+	EAL-ER+1EAEO	;ADJUST
+	EXP(AL0)EXP
+	SHL(EXP)!0AO	;TCEEO0~EO1:0AO
+	AOSA2
+
+LONG1/	<32>CMSSC		;FOR SHIFT OF 27
+	0ALSHL	;NO HIGH PART AND 0 SIGN
+	MSR&SR.LQSHR	;LOW PART IN APPROPRIATE PLACE
+	EOELEAL	;HIGH EXP
+	<32>CMMER
+	EAL-ER+1EAEO	;ADJUST
+	EXP(AL0)EXP
+	SHL(EXP)!0AO	;TCEEO0~EO1:0AO
+	AOSA2
+;DOUBLE FLOATING NEGATE AND FLOATING SCALE
+
+DFN first negates the low word to determine the carry before negating
+the high word. The exponent is shuffled  through  the  exponent  data
+paths  while being stripped off in the actual calculation, so that it
+remains unchanged and the carry is propagated correctly.
+
+DFN/	;OPAL		AC (HIGH WORD)
+	;OPBR		MEM (LOW WORD)
+	R.FPSLAL
+	0AR&AR-AL+1AM		;NEGATE LOW WORD
+	R[0-5]ELEALEAEO
+	EABYTEXP		;R[0-5],R[6-8]
+	AM(EXP)AOM
+
+On  the  second  cycle  the high word is complemented, with the carry
+determined by the carry out of the previous operation. Then  the  two
+words are stored.
+
+	SP(DFN)			;AM CRY GRONK
+	LAL&0AR		;HIGH WORD
+	AR-AL!AR-AL+1AM	;COMPLEMENT, ADD IN SAVED CARRY
+	AMAOSA
+	MQSOSM
+
+FSC adds the number in MA to the exponent field, and then  normalizes
+if  necessary.
+
+FSC/	;OPAL		AC
+	;0M		MAKES THE NORMALIZER HAPPY
+	MAER		;DELTA
+	|L[1-8]|ELEAL	;GET EXP
+	EAL+EREAEO	;ADD TOGETHER
+	L.FPSLALMTAOL
+	@NORM
+;FLOATING MULTIPLY
+
+Floating multiply is almost entirely handled by previously  described
+microcode.  The  purpose  of  this  cycle  is to calculate the result
+exponent (the sum of the operand exponents) and strip  the  exponents
+off  the  operands. After that, it is merely necessary to transfer to
+the fixed-point multiply routine, and  (in  the  words  of  a  famous
+handwave) all the right things will happen. There is provision in the
+multiply routine to  use  a  smaller  iteration  count  for  floating
+multiply,  and in the cleanup cycle to shuffle the exponent (saved in
+EL) to EO and transfer to the normalize routine.
+
+FMPxx/	;OPAL		AC
+	;OPBR		ALSO HERE TO GET EXP
+	|R[0-8]|ER	
+	|L[1-8]|EL	;CORRECT SIGN
+	EAL+EREAEO	;CALCULATE EXP SUM
+	L.FPSLALMTAOL	;STRIP EXPONENTS OFF
+	R.FPSRQSOM	;BOTH OPERANDS
+
+	SP(MPY INIT)	;SAVE AWAY INFO FOR LATER
+	L.R2SLAL	;1/4 AC
+	LSRAR		;AC
+	AR-AL+1(EX)AMAOR	;3/4 ACR
+	<104>CMSSC	;RIGHT 4 PLACES
+	MQSHRSOM	;SHIFT MULTIPLIER
+	EOEX		;SAVE EXPONENT
+	<771>CMMELEAL	;-7
+	EALEAEO
+	RETURN(FMP1)
+	@MUL1,~M35:@MUL3	;SKIP SECOND SETUP CYCLE FOR EVEN MULTIPLIER
+
+FMPRI/	;OPBL		MEM	Hold I-box
+	RELEASE IBOX
+	L.SWPSLALMTAOR
+	OPAL
+	@FMPxx
+;FLOATING DIVIDE
+
+FDVx/	;OPBL		C(E)
+	;OPAR		C(AC)
+	;0M
+	SP(STROBE NDIV)		;R SIGN  NEGATIVE DIVIDEND FLAG
+	|R[0-8]|ER
+	~|L[1-8]|EL
+	EAL+ER+1EAEO
+	R.FPSLAL
+	0AR
+	AR+AL!AR-AL+1(R0)AMAOR		;R0: AR-AL+1
+	SLOW(A0)			;ALLOW TIME FOR CRY0
+
+FDV1/	EOEL&EOEX
+	<744>CMMER
+	0EAL
+	EAL+EREAEO
+	L.FPSLAL
+	RAR
+	AR+AL!AR-AL+1(~L0)AMAO	;-|DIVISOR|
+	@FDV4,CRY0:@FDV2
+
+FDVRI/	;OPBL		MEM
+	;OPAR		AC
+	;0M
+	L.SWPSLALMTAOL
+	@FDVx
+;FLOATING DIVIDE - SETUP
+
+FDV2/	ELEAL		;DIVIDEND EXPONENT
+	EAL+1EAEO
+	<107>CMSSC
+	RSLALSHL
+	ALAM		;SIGN FOR SHIFTER
+	MQSHR
+	SHLAOR
+	SHRSOM
+
+FDV3/	EOEX
+	L.FPSLAL
+	RAR
+	AR+AL!AR-AL+1(~L0)AMAO	;-MAGNITUDE OF DIVISOR
+	<744>CMMER
+	0EAL
+	EAL+EREAEO
+
+
+;FLOATING DIVIDE - ITERATION (FDV,FDVR)
+FDV4/	SP(FDV CYC)
+	EOER
+	0EAL
+	EAL+ER+1EAEO		;COUNT OUT
+	AO.L(M035)AR
+	L.FPSLAL
+	AR+AL!AR-AL+1(AO=L0)AMAO	;SUBTRACT |DIVISOR| UNLESS MISSED LAST TIME
+	AOR
+	MQSHR
+	<1>CMSSC
+	SHR(QBIT35)SOM
+	~ER=-1:@FDV4,@FDV5
+
+FDV5/	SP(FDV QUOT)
+	EXELEAL
+	EALEAEO
+	EXP(NDIVL0)EXP
+	MSLAL			;QUOTIENT
+	0AR
+	FDV QUOTAM		;NDIVL0: AR-AL+1|AR-AL : FDVRCRY0(L)
+				;NDIV=L0: AR+AL|AR+AL+1 : FDVRCRY0(L)
+	AM(EXP)!0(M=0)AO	;TCE:0AO
+	AOSTORES
+	RSRQSOSA2		;LOW PART FOR FDVL
+
+;FLOATING DIVIDE LONG
+FDVL/	;OPAR		C(AC)
+	;OPBL		C(E)
+	SP(STROBE NDIV)
+	|R[0-8]|ER
+	~|L[1-8]|EL
+	EAL+ER+1EAEO
+	R.FPSLALAMAOR
+	OPB RELEASE
+	OPBM		;C(AC+1)
+
+	<9>CMSSC&<9>CMMMS
+	MQSHR
+	SHR.RSOM
+	EOEX
+	0EAL
+	|R[0-8]|ER
+	EAL+EREAEO
+	@FDVL2,R0:@FDVL1
+
+FDVL1/	RSLAL
+	0AR
+	MSLE&0SRE
+	AR-AL+1(D)AMAOR
+	AMESOM
+	SLOW(A0)
+
+FDVL2/	EOEL
+	L.FPSLAL
+	RAR
+	AR+AL!AR-AL+1(~L0)AMAO
+	<745>CMMER
+	0EAL
+	EAL+EREAEO
+	MSR
+	SR.LQSOM
+	@FDVL4,CRY0:@FDVL3
+
+;FLOATING DIVIDE LONG - DIVIDEND RIGHT SHIFT
+FDVL3/	ELEAL		;DIVIDEND EXPONENT
+	EAL+1EAEO
+	<107>CMSSC
+	RSLALSHL
+	ALAM
+	MQSHRSOM
+	SHL(AM0)AOR
+
+	EOEL
+	L.FPSLAL
+	RAR
+	AR+AL!AR-AL+1(~L0)AMAO
+	<745>CMMER
+	0EAL
+	EAL+EREAEO
+	@FDVL4
+
+;FLOATING DIVIDE LONG - ITERATION
+FDVL4/	SP(FDV CYC)
+	EOER			;TEST NODIV (~CYCFLGQBIT)
+	0EAL
+	EAL+ER+1EAEO		;COUNT OUT
+	AO.L(M035)AR
+	L.FPSLAL
+	AR+AL!AR-AL+1(AO=L0)AMAO
+	AOR
+	MQSHR
+	<1>CMSSC
+	SHR(QBIT35)SOM
+	~ER=-1:@FDVL4,@FDVL5
+;FLOATING DIVIDE LONG - CLEANUP
+
+FDVL5/	SP(DIV CYC)
+	<1>CMSSC
+	MQSHR
+	SHR(QBIT35)SOM
+	RSLAL
+	0AR
+	AR+AL!AR-AL+1(NDIV)AM
+	AMAOR
+	@FDVL6,CRY0(L):@FDVL7
+
+FDVL6/	ELEAL
+	<745>CMMER		;-27 LESS THAN DIVIDEND EXP
+	EAL+EREAEO
+	EXP(NDIV)EXP
+	RSLAL
+	AM(EXP)!0AO		;TCE(EO0~EO1):0AO
+	AOR
+	@FDV5
+
+FDVL7/	SP(FDV QUOT)
+	ELEAL
+	<745>CMMER		;-27 LESS THAN DIVIDEND EXP
+	EAL+EREAEO
+	EXP(NDIV)EXP
+	RSLAL&0AR		;CORRECT REMAINDER
+	AR+AL!AR-AL+1(NDIVL0)AM
+	AM(EXP)!0(TCE(EO0~EO1))AO		;TCE(EO0~EO1):0AO
+	AOR
+	@FDV5
+;DOUBLE PRECISION - ADD
+
+DFAD/	;OPBL, OPAR		C(E)L, C(AC)R	0FLAG
+	EXPFC			;COMPARE |L[0-8]| WITH |R[0-8]|
+	|R[0-8]|ER		;PICKUP MAGNITUDE OF AC EXP
+	~|L[1-8]|ELEAL
+	EAL+ER+1EAEO		;|R.EXP|-|L.EXP|
+	0SOE			;SETUP SOE TO CATCH DENORMALIZED BITS
+	@DFAD2,FC:@DFAD1	;IF L.EXP>R.EXP THEN DFAD1
+
+DFAD1/	OPBR			;SWITCH SO LARGER IN R
+	OPAL
+	EOER
+	0EAL
+	EAL-ER+1EAEO		;|LARGER.EXP|-|SMALLER.EXP|
+
+	OPB RELEASE
+	L.FPSLALMTAOL	;FLUSH EXPONENT PART
+	OPBLE			;C(AC+1)L EXTENSION
+	FETCH RQ		;GET IBOX STARTED ON C(E+1)
+
+	SP(UNORM SL)
+	OPBRE			;C(E+1) WAIT IF NECESSARY
+	WAIT FOR DATA
+	@DFAD3,FLAG:@DFSB3
+
+DFAD2/	OPB RELEASE		;RELEASE OPB FOR C(AC+1)
+	L.FPSLALMTAOL	;FLUSH EXPONENT PART
+	OPBRE			;C(AC+1)R EXTENSION
+	FETCH RQ		;GET IBOX STARTED ON C(E+1)
+
+	SP(UNORM SL)
+	OPBLE			;C(E+1) WAIT IF NECESSARY
+	WAIT FOR DATA
+	@DFAD3,FLAG:@DFSB4
+
+;DOUBLE PRECISION - SUBTRACT
+
+DFSB/	;OPBL, OPAR		C(E)L, C(AC)R 1FLAG
+	EXPFC		;COMPARE |L[0-8]| WITH |R[0-8]|
+	|R[0-8]|ER	;PICKUP MAGNITUDE OF AC EXP
+	~|L[1-8]|ELEAL
+	EAL+ER+1EAEO	;|R.EXP|-|L.EXP|
+	0SOE		;SETUP SOE TO CATCH DENORMALIZED BITS
+	@DFAD2,FC:@DFAD1	;IF L.EXP>R.EXP THEN DFAD1
+
+DFSB3/	SP(UNORM SL)	;SETUP SL FOR UNORMALIZE SHIFT
+	RSLAL		;HIGH PART (RSL WINS OVER UNORM GRONK)
+	0AR		;FOR UNGATED SIDE OF ALU
+	RESLE&0SRE	;LOW PART
+	AR-AL+1(D)AMAO	;NEGATE (DOUBLE LENGTH)
+	AMEAOE		;LOW PART
+	AOR&AOERE
+	@DFAD3
+
+DFSB4/	SP(UNORM SL)
+	LSLAL		;HIGH PART
+	0AR		;FOR UNGATED SIDE OF ALU
+	LESLE&0SRE	;LOW PART
+	AR-AL+1(D)AMAO	;NEGATE (DOUBLE LENGTH)
+	AMEAOE		;LOW PART
+	AOL&AOELE	;NEGATE OPERAND IF SUBTRACT
+	@DFAD3
+;DOUBLE PRECISION - ADD - DENORMALIZE
+
+DFAD3/	SL(EO[7-8])AL	;L RIGHT 0,1,2,3
+	SLSLE		;DOUBLE LENGTH SHIFT
+	ALAMAOL	;DENORMALIZE LESSER OPERAND
+	AMEAOELE	;COPY LOW PART AROUND
+	EOSC
+	SC[7-8]SHEXSOE	;CATCH BITS OFF LOW END
+	EOER
+	<774>CMMELEAL
+	EAL+EREAEO
+	DFAD(DFAD4,DFAD5,DFAD6)BRANCH
+			;~ER[0-2]=0:@DFAD4,[
+			;~ER[3-6]=0:@DFAD5,@DFAD6]
+
+;**** DON'T STORE BACK ****
+DFAD4/	RAR&RESRE	;DENORMALIZED INTO OBLIVION
+	ARAMAOSA	;JUST STORE BACK OTHER OPERAND
+	AMESOSA2
+
+DFAD5/	AO.R4AR	;STILL FURTHER TO GO
+	AOE.R4SRE	;DENORMALIZE BY 4
+	<104>CMSSCSHEXSOE	;RIGHT 4 IN SC FOR SOE
+	EOER
+	<774>CMMELEAL
+	EAL+EREAEO	;COUNT DOWN SHIFT
+	ARAMAOL
+	AMEAOELE
+	@DFAD5,ER[3-6]=0:@DFAD6;LOOP IF NEEDED MORE THAN 4
+
+DFAD6/	LAL&R.FPSRAR	;TWO HIGH OPERANDS
+	LESLE&RESRE	;TWO LOW PARTS
+	AR+AL(D)AMAOL
+	AMEAOELE
+	AMESOM	;LOW 35 BITS OF RESULT
+	|R[0-8]|ER
+	0EAL
+	EAL+EREAEO
+
+;DFAD3,,DFAD4
+;DFAD5,,DFAD6
+
+;DOUBLE PRECISION - NORMALIZE
+
+DNORM/	DNORMNORM		;NORMALIZE BY -1,0,...,10
+	FNSC
+	MSR
+	LALAM			;FOR SIGN BIT
+	SR.LQ			;SQUEEZE OUT SIGN, REPLACE BY BIT 36
+	SHL(AM0)AOL
+	SHR.RSOM		;SPECIAL SHIFT SHL_SHR_SOE
+	SCSHEXSOE		;SHIFT BITS IN LOW EXTENSION
+	EOELEAL		;EXPONENT MAGNITUDE
+	FNER
+	EAL-ER+1EAEO		;ADJUST EXPONENT FOR SHIFT
+	FNLONG:@DNORM,@DNORM1	;NOT L=0M=0SOE=0 AND SHIFT>10
+
+;	RNDCRY=SOE0~(L0SOE[1-35]=0)
+;	FNLUZ= ~L0L[9-35]=-1M[1-35]=-1RNDCRY or
+;		L0L[9-35]=0M[1-35]=0~RNDCRY
+DNORM1/	DROUND TESTNORM	;(TEST FOV,FXU)
+	LAL&0AR
+	MSLE&0SRE
+	AR+AL(DROUND)AMAOL
+	AMEAOELE
+	AMESO			;FOR STORE
+	0EAL&EOER
+	EAL+EREAEO
+	EXP(AL0)EXP
+	AM(EXP)!0(L=0M=0)AO
+	AOSA&SOSA2
+	FNLUZ:@DNORM2,@{DONE}
+
+DNORM2/	SP(TEST FOV,FXU)
+	L.R1SLAL
+	SLSLE
+	ALAM
+	EOELEAL
+	EAL+1EAEO
+	EXP(AL0)EXP
+	AM(EXP)AOSA
+	AMESOSA2
+;DOUBLE PRECISION - MULTIPLY
+
+DFMP/	;OPAL OPBR		C(AC)L, C(E)R
+	|R[0-8]|ER
+	|L[1-8]|ELEAL
+	EAL+EREAEO		;SUM EXPONENTS
+	L.FPSLALMTAOL	;STRIP EXPONENT OFF AC OPERAND
+	R.FPSRQSOM		;STRIP EXPONENT OFF MEMORY OPERAND
+	OPB RELEASE		;TELL I WE WANT C(AC+1) IN OPB
+	FETCH RQ		;START I ON FETCH OF E+1
+	OPBLE&OPBRE		;C(AC+1) IN L.EXT AND R.EXT
+
+	MSLESHEXSOE		;SHUFFLE HIGH PART OF MULTIPLIER AWAY
+	OPBM			;C(E+1) WAIT IF NECESSARY
+	EOELEAL		;EXPONENT
+	<2>CMMER		;ADJUST FOR POSITION OF EVENTUAL PRODUCT
+	EAL+EREAEO
+
+	SP(DFMP INIT)		;SETUP SL TO MPY DECODER
+	EOEL			;SAVE EXPONENT
+	L.R2SLAL&SLSLE	;MULTIPLICAND/4
+	LSRAR&RESRE		;MULTIPLICAND
+	AR-AL+1(EXD)AMAOR	;3/4 MULTIPLE
+	AMEAOERE		;ALSO LOW PART
+	<760>CMMER		;16 STEPS FOR FIRST 64 BITS
+	0EAL&EAL+EREAEO
+	<104>CMSSCSHEX
+	MQSHR
+	SHR(DFMP SOE[32-35][1-4])SOM	;SHIFT DOUBLE LENGTH MULTIPLIER
+	SHEXSOE		;(CLOSE GAP FROM LOW SIGN)
+	~M35:@DFMP1,@DFMP0
+
+DFMP0/	LAL&LESLE
+	0AR&0SRE
+	AR-AL+1(EXD)AMAO
+	AMEAOE
+
+;DOUBLE PRECISION - MULTIPLY - CONTINUED
+
+DFMP1/	SL(MD)AL		;SELECT MULTIPLE
+	SL(MD)SLE		;ALSO LOW PART
+	AO.R4!0AR		;INITIALIZE PARTIAL PRODUCT FIRST TIME
+	AOE.R4!0SRE
+	AR+AL(EXD)!AR-AL+1(EXD)(~MDADD)AMAO
+	AMEAOE
+	<104>CMSSCSHEX		;RIGHT 4
+	MQSHR
+	SHR(DFMP SOE[32-35][1-4])SOM	;SHIFT DBL MULTIPLIER
+	SHEX(DFMP AOE[36-39][0-3])SOE	; " AND SAVE LOW PRODUCT BITS
+	EOER&0EAL		;ITERATION COUNT
+	EAL+ER+1EAEO		;COUNT IT OUT
+	MUL(DFMP3)BRANCH	;~MDLONG~ER=-1:@DFMP1
+				;MDLONG: @DFMP2 (E+1)
+				;~MDLONGER=-1:@DFMP3 (E)
+
+DFMP2/	L.R1SLAL&SLSLE	;8* MULTIPLE (FOR 10 AND 14)
+	AOAR&AOESRE		;DON'T SHIFT THIS TIME
+	AR+AL(EXD)!AR-AL+1(EXD)(~MDADD)AMAO
+	AMEAOE
+	ER=-1:@DFMP3,@DFMP1
+
+;DFMP2,,DFMP3
+
+;DOUBLE PRECISION - MULTIPLY CLEANUP
+
+DFMP3/	SP(FMP CLNUP)
+	AOL			;HIGH FRACTION (DISPLACED RIGHT 1)
+	AOESRE
+	ARAM			;FOR SREAME
+	AMESOM		;LOW FRACTION
+	<104>CMSSCSHEX
+	SHEX(AOE[36-39][0-3])SOE
+	@DNORM
+;DOUBLE PRECISION - DIVIDE
+
+DFDV/	;OPAR OPBL 0M	C(AC)R C(E)L
+	|L[1-8]|ELEAL
+	|R[0-8]|ER
+	EAL-ER+1EAEO		;- QUOTIENT EXPONENT
+	L.FPSLALMTAOL	;FLUSH DIVISOR EXPONENT
+	OPB RELEASE		;TELL I-BOX WE WANT C(AC+1)
+	FETCH RQ		;START IBOX ON C(E+1)
+	OPBRE			;C(AC+1) - DON'T WAIT
+	0SOE			;0QUOTIENT
+
+	SP(STROBE NDIV)		;REMEMBER DIVIDEND SIGN (R0)
+	EOER&0EAL
+	EAL-ER+1EAEO		;+ QUOTIENT EXPONENT
+	R.FPSLAL&RESLE
+	0AR&0SRE		;TAKE MAGNITUDE OF DIVIDEND
+	AR+AL(D)!AR-AL+1(D)(~L0)AMAO
+	AOR
+	AMEAOERE
+	OPBLE			;C(E+1)
+	WAIT FOR DATA
+	SLOW(A0)		;CRY0 TEST NEXT CYCLE
+
+	RAR&RESRE
+	LAL&LESLE
+	AR+AL(D)!AR-AL+1(D)(~L0)AM
+	@DFDV2,CRY0:@DFVD1	;|R||L|
+
+DFDV1/	R.R1SLAL&SLSLE
+	0AR&0SRE
+	AR+AL(D)AMAOR
+	AMEAOERE
+	EOER&0EAL
+	EAL+ER+1EAEO		;ADJUST EXPONENT FOR SHIFT
+;DOUBLE PRECISION - DIVIDE ITERATION SETUP
+DFDV2/	RAR&RESRE
+	LAL&LESLE
+	AR+AL(D)!AR-AL+1(D)(~L0)AMAO
+	EOEX
+	<707>CMMER&0EAL
+	EAL+EREAEO
+
+DFDV3/	SP(DFDV CYC)			;TEST NODIV (~CYCFLGQBIT)
+	AO.L(AOE0135)AR&AOE.LSRE
+	LAL&LESLE
+	AR+AL(D)!AR-AL+1(D)(AO=L0)AMAO
+	AMEAOE
+	<1>CMSSCSHEX
+	MQSHR
+	SHR(QBIT35)SOM
+	SHEX(M0135)SOE
+	EOER&0EAL
+	EAL+ER+1EAEO		;ITERATION COUNT
+	ER=-1:@DFDV4,@DFDV3
+
+;DOUBLE PRECISION - DIVIDE CLEANUP
+
+DFDV4/	SP(DFDV CLNUP)
+	<1>CMSSCSHEX
+	MQSHR
+	SHR(QBIT35)SOM
+	SHEX(M0135)AOL
+
+DFDV5/	SP(FDV QUOT)			;TEST FOV,FXU
+	EXELEALEAEO
+	EXP(NDIVL0)EXP
+	LAL&0AR
+	MSLE&0SRE
+	AR+AL(D)!AR-AL+1(D)(NDIVL0)AM
+	AMESOSA2
+	AM(EXP)!0(L=0M=0)AO
+	AOSA
+
+;INPUT/OUTPUT
+
+Input  instructions  take one or more cycles to read in the data (may
+have to wait), and then one additional cycle to store or process  the
+data.
+
+CONI/	WAIT FOR IO
+	IOHL
+	CONI RQ
+	@IOBIN
+
+DATAI/	WAIT FOR IO
+	IOHL
+	DATAI RQ
+
+IOBIN/	WAIT FOR IO DATA
+	HLSRQSOSTORES	;STORE DATA
+
+CONSx/	;OPBL		;EFFECTIVE ADDRESS	HOLD IBOX
+	WAIT FOR IO
+	IOHL			;SETUP HL TO IO DATA
+	CONI RQ
+
+	WAIT FOR IO DATA
+	HLSRARAMAOR
+	RELEASE IBOX
+
+	RAR
+	LAL
+	CONSxPROG BRANCH
+
+;Output instructions do nothing but pass the data to the I/O interface.
+
+DATAO/	;OPBR		DATA
+	WAIT FOR IO
+	RARMTAO	;SHUFFLE THROUGH
+	DATAO RQ
+
+CONO/	;OPBL		DATA
+	;OPBR
+	WAIT FOR IO
+	L.SWPSLAL
+	RAR
+	MT(AL,,AR)MTAO
+	CONO RQ
+;INPUT/OUTPUT - BLOCK XFER
+
+
+Block mode input does the pointer calculation  on  the  first  cycle,
+gets the data and sets the address on the second cycle, and transfers
+the data to memory on the third.
+
+BLKI/	;OPBR		POINTER
+	RAR
+	0AL
+	AR+AL+(1,,1)AMAOSM	;UPDATE AND STORE
+
+
+	WAIT FOR IO
+	IOHL			;SETUP HL TO IO SOURCE
+	DATAI RQ		;MAY WAIT
+	AOSMA			;SET ADR
+	@IOBIN			;DO DATAI
+
+Block  mode output again updates the pointer on the first cycle, also
+initiating an IBOX fetch, and then does a DATAO.
+
+BLKO/	;OPBR		POINTER
+	RAR
+	0AL
+	AR+AL+(1,,1)AMAOSM	;UPDATE AND STORE
+	IMA FROM AO
+	WAIT FOR DATA		;ALSO START REQUEST
+	OPBR			;WHEN DATA COMES
+	@DATAO			;DO DATAO
+
+
