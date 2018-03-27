@@ -1,0 +1,697 @@
+COMMENT    VALID 00017 PAGES 
+RECORD PAGE   DESCRIPTION
+ 00001 00001
+ 00005 00002	MAIN DATA PATH
+ 00008 00003	COUNT OF BITS
+ 00009 00004	SL AND SR
+ 00011 00005	AL, AR, AND Q
+ 00013 00006	AM
+ 00015 00007	MT
+ 00016 00008	AO AND SO
+ 00018 00009	L, R, AND M
+ 00019 00010	BS, BR, BC
+ 00021 00011	BR - SPECIAL CONDITIONS
+ 00022 00012	CMCF AND CMF
+ 00024 00013	RANDOM CONTROL BITS
+ 00028 00014	EXPONENT
+ 00029 00015	SC, MS
+ 00031 00016	FC AND NORM
+ 00032 00017	EXTENSION CONTROL
+ 00033 ENDMK
+;
+;MAIN DATA PATH
+
+SL	3	AL SELECTOR
+SR	3	AR SELECTOR
+AL	3	LEFT INPUT TO ADDER
+AR	3	RIGHT INPUT TO ADDER
+Q	3	LOW INPUT TO SHIFTER
+AM	7	ADDER AND CARRY MODE
+MT	3	MASKED TRANSFER (FOR HALF WORD, BYTE)
+AO	4	ADDER OUTPUT
+SO	3	SHIFTER OUTPUT
+L	2	DATA INPUT LATCH
+R	2	  "
+M	2	  "
+
+CMS	7	SHIFT VALUE
+CMM	9	MASKER FIELD LENGTH
+
+;RANDOM CONTROL FIELDS
+
+BS	1	MICROCODE BRANCH SOURCE ADDRESS
+BR	3	MICROCODE BRANCH TYPE
+BC	5	MICROCODE BRANCH CONDITION
+CME	9	MICROCODE BRANCH ADDRESS
+CMCF	2	F-FIELD DECODE
+CMF	9	DECODED CONTROL FIELD
+I-RELEASE	RELEASE TO ALLOW IBOX TO ADVANCE TO NEXT INSTRUCTION
+OPB-RELEASE	CLEAR I DATA READY
+FETCH-RQ	REQUEST ADDITIONAL DATA
+WAIT-FOR-I	HANG UNTIL I DATA READY
+STORE REQ	STORE CONTENTS OF SM IN MEMORY
+SM	2	SM LOAD CONTROL
+SAC	2	AC STORE REQ AND SOURCE
+SAC2	2	AC2 STORE REQ AND SOURCE
+SLOW	2	CLOCK SLOW REQUEST
+
+ARITH	1	ENABLE EXPONENT AND EXTENDED CONTROL
+
+;EXPONENT
+
+EL	3	ADDER LEFT INPUT
+ER	3	ADDER RIGHT INPUT
+SC	3	SHIFTER CONTROL LATCH
+MS	3	MASKER CONTROL LATCH
+EAL	1	ADDER LEFT DISABLE
+EA	3	ADDER
+EO	1	ADDER OUTPUT LATCH
+EXP	2	EXPONENT SELECTOR
+EX	1	EXPONENT SAVE REGISTER
+
+FC	2	EXPONENT COMPARATOR MODE
+NORM	2	NORMALIZER MODE
+
+;EXTENDED DATA PATH
+
+SLE	2	ADDER LEFT SELECTOR
+SRE	2	ADDER RIGHT SELECTOR
+AOE	1	ADDER OUTPUT LATCH
+LE	2	DATA INPUT LATCH
+RE	2	  "
+SHX	1	SHIFTER EXTENSION
+SOE	2	SHIFTER EXTENSION OUTPUT LATCH
+
+;COUNT OF BITS
+
+FC	2
+ES	2
+ER	3
+SC	3
+MS	3
+EX	1
+EL	3
+EAL	2
+EA	3
+EO	2
+EXP	2
+CMA	9
+CMB	7
+		42
+L	3
+R	3
+M	3
+SL	3
+SR	3
+AL	3
+AR	3
+Q	3
+MT	3
+AM	6
+AO	4
+SO	3
+		40
+SLE	2
+SRE	2
+SHX	1
+SOE	2
+AOE	2
+LE	1
+RE	1
+		11
+BRANCH	8
+BRADR	9
+OP	4
+SAC	3
+SMEM	3
+SLOW	2
+MISC	7
+		36
+		129
+
+
+;SL AND SR
+
+SL	AL SELECTOR CONTROL
+
+	SLA	SLB
+
+0	HL	L.R1
+1	L.SWP	L.R2
+2	-1	L.R3
+3	CM	L
+4	M.R1	R.R2
+5	M	R.R1
+6	L.FP	R.FP
+7	L	R
+
+	HL	Hardware literal path (additional selector for PC, IO DATA, IR.
+	L.R1	L shifted right by one (arithmetic shift)
+	L.SWP	L with left and right halfs interchanged
+	L.FP	L with the exponent field filled by sign bits
+	CM	The rightmost 36 bits of the micro-word
+
+	The SL field control a pair of selectore which can be selected
+by the AL register. L.FP is a copy of L with the exponent field filled
+with sign bits. The SL selector is also unconditionally driven during
+the multiply step by the multiply decoder, and by the low bits of the
+exponent difference during DFAD un-normalize.
+
+SR	AR AND M SELECTOR CONTROL
+
+0	CM
+1	L
+2	M.FP
+3	M
+4	HL
+5	R.R1
+6	R.FP
+7	R
+
+;AL, AR, AND Q
+
+AL	ADDER LEFT INPUT LATCH
+
+0	HOLD
+1	0
+2	CONDITIONAL
+3	SLB
+4	SLA
+5	L
+6	L|SLA :	IR6	HALF-WORD COND
+7	L|SLA :	IR8	Txxx COND
+
+	CONDITIONAL
+MPY GRONK:	SLB|0	Zeros or slected multiple
+UNORM GRONK:	SLB|L	Shift of zero or 1-3 as a function of
+			the low two bits of the exponent difference
+
+	HALF WORD COND
+	L if HRRx or HLLx
+	L.SWP (SLA) if HRLx or HLRx
+
+	Txxx COND
+	L if TRxx or TDxx
+	L.SWP if TLxx or TSxx
+
+AR	ADDER RIGHT INPUT LATCH (UNGATED SIDE)
+
+0	HOLD
+1	0
+2	R
+3	SR
+4	AO.R4	(0 IF FIRST CYC OF MUL AND LOW BIT=0)
+5	SO
+6	AO
+7	AO.L	(AO3635)
+		(M035)		DIV CYC
+		(AOE135)	DFDV CYC
+
+Q	SHIFTER LOW PART INPUT LATCH
+
+0	HOLD
+1	-1
+2	0|-1 :	L SIGN
+3	COND
+4	0
+5	M
+6	SR
+7	SR.L
+
+	COND
+	SR.L|-1 if L negative and right shift on ash
+	SR.L|-1 if L negative and previous cycle detected shift
+		longer than 44 (on ASHC3)
+
+;AM
+
+AM	ADDER AND CARRY CONTROL MODES
+
+0 00M MMM	BOOLE MODE=MMMM
+0 01T ---	T=0  Txxx DECODE FROM IR
+		T=1 BOOLE DECODE FROM IR
+0 1DE XXX	D= DOUBLE LENGTH CARRY
+		E= EXTENDED CARRY (40 OR 75 BITS FOR MULTIPLY)
+		XXX=ADD/SUB CONDITION
+		0	NDIVL0
+		1	AO=L0
+		2	NDIV
+		3	MULTIPLY DECODER ADD
+		4	L POSITIVE
+		5	R NEGATIVE
+		6	FLAG
+		7	--
+
+1 0IS CMM	I=CARRY INSERT (BIT 17)
+		S=CARRY INHIBIT (BIT 1817)
+		C=CARRY IN
+		MM=ADD MODE
+		0	AR
+		1	AR+AL
+		2	AR-AL
+		3	AR-1
+
+1 1DE CMM	D=DOUBLE LENGTH CARRY
+		E= EXTENDED CARRY (40 OR 75 BITS FOR MULTIPLY)
+		C=CARRY IN
+		MM=ADD MODE
+		0	AR
+		1	AR+AL
+		2	AR-AL
+		3	AR-1
+;MT
+
+MT	MASKED TRANSFER
+
+0	AL,,AL
+1	AL,,AR
+2	AR,,AL
+3	AR,,AR
+4	HALF-WORD DECODE
+5
+6	MASKED TRANSFER
+7
+
+	HALF-WORD DECODE
+	AL contains source
+	AR contains destination
+	HxL:	AL,,AR
+	HxR:	AR,,AL
+	The destination is gronked to -1 if HxxO, HLxE and L0,
+		HRxE and L18.
+
+	MASKED TRANSFER (for deposit byte)
+
+	AR contains the destination word
+	The high shifter word contains the byte to be deposited
+	The low shifter word contains a mask
+	Bit for bit the destination and source are selected based
+	upon the bits in the mask
+
+;AO AND SO
+
+AO	ADDER OUTPUT REGISTER
+
+0	HOLD
+1	AM(EXP)		Signed exponent from EA inserted into AO 0-8
+2	SHL(EXP)
+3	SHL(EXP)|0	Zero if Floating Underflow or fraction zero.
+4	SHL
+5	AM
+6	SHL(AM)		Shifter with sign bit from AM00
+7	SHL(AM)|-1	-1 if negative, right shift longer than 36
+10	AM(EXP)|0	Zero if L=0 and M=0
+11	  "		Zero if L=0
+12	  "		Zero if TCE (test comapre equal)
+13	  "		Zero if Floating eXponent Underflow or TCE
+14	MT		Masked transfer
+15	SHX		Shifter in extension
+16	EO		Exponent into bits 28-35
+17	COND
+
+	COND
+	SHL!-1!0 if L0SHIFT>44~SHIFT>110 (0 if ~L0SHIFT>44 or SHIFT>110)
+	
+SO	SHIFTER OUTPUT LATCH
+
+0	HOLD
+1	AME		;LOW 35 BITS OF EXTENDED ADDER
+2	Q.R		;Q SHIFTED RIGHT ONE, AR0SO0
+3	Q
+4	SHR.R		;AR0SO0
+5	SHR.R!-1	;-1 IF L0SHIFT>110
+6	SHR
+7	COND
+
+	COND
+	SHR!0 if OP FAD1SHIFT>110
+	SHR(Q[33-35],QBIT[32-35]) if OP DIV CYC
+	else
+	SHR(Q[36-39][0-3])
+	SHR(AR0,Q[37-39][0-3]) on OP MUL CLNUP
+	SHR(SOE[32-35][1-4]) on DFMP
+
+;L, R, AND M
+
+L	LEFT INPUT LATCH
+
+0	-
+1	AO
+2	OPA
+3	OPB
+
+	OPB source modified to OPA by I-BOX when in BLT Fetch mode
+	and next data word was part of a double word fetch and is
+	now held in OPA
+
+R	RIGHT INPUT LATCH
+
+0	-
+1	AO
+2	OPA
+3	OPB
+
+M	SHIFTER SIDE INPUT LATCH
+
+0	-
+1	AO
+2	SO
+3	OPB
+;BS, BR, BC
+
+BS	BRANCH ADDRESS SOURCE
+
+0	CME		;MICRO-WORD BRANCH ADDRESS FIELD
+1	RETURN		;RETURN ADDRESS
+
+CME	BRANCH ADDRESS
+
+
+BR	BRANCH TYPE
+0	E|E+1		;CONDITION SELECTS BETWEEN ADDRESSED MICRO-WORD PAIR
+1	COND		;LIKE E|E+1 BUT WITH ADDITIONAL WIRED IN TESTS
+2	E|DONE		;CONDITION: DONE INSTEAD OF NEXT MICRO-INSTRUCTION
+3	  "		;CONDITION:  "
+4	E|.+1		;CONDITION: USE MICROWORD FETCHED WITH CURRENT MICRO-INSTRUCTION
+5	  "		;CONDITION: "
+6	E|.		;CONDITION: REPEAT THIS MICRO-INSTRUCTION
+7	  "		;CONDITION:  "
+
+BC	BRANCH CONDITION
+0	FALSE		20	R0
+1	AR9		21	SAC2 ENB
+2	MA 18		22	CRY0(SAVED)
+3	SHIFT>110	23	BRANCH(SAVED)
+4	ER=-1		24	-
+5	FC		25	-
+6	ER[3-6]=0	26	-
+7	MD LONG	27	-
+10	DN LONG	30	EXEC MODE
+11	FN LONG	31	BIS FLAG
+12	L0+L=0		32	STORE OK
+13	M35		33	STORE PAGE FAULT
+14	L=0		34	I PAGE FAULT
+15	L0		35	FLAG
+16	FNLUZ		36	-
+17	L35		37	-
+
+;BR - SPECIAL CONDITIONS
+
+SPECIAL CONDITONS (BRANCH TYPE 1)
+xx0xx	DONE - Last E-box cycle, dispatch to instruction in I-box
+
+DFAD (06)
+.		-
+.+1		~ER[0-2]=0
+E		ER[0-2]=0ER[3-6]=0
+E+1		ER[0-2]=0~ER[3-6]=0
+
+MUL(07)
+.		~ER=-1~MD LONG
+.+1		-
+E		MD LONG
+E+1		ER=-1~MD LONG
+
+NORM2(16)
+.		-
+.+1		-
+E		FN LUZ
+E+1		~FNLUZSAC2
+DONE		~FNLUZ~SAC2
+
+BLT(17)
+.		-
+.+1		CRY0(L)~L[0-16]=0
+E		~CRY0(L)L[0-16]=0L35
+E+1		~CRY0(L)L[0-16]=0~L35
+
+CRY0 TEST(26)
+E		~CRY0
+E+1		CRY0
+;CMCF AND CMF
+
+CMCF-CMF
+
+00 00	EXCEPTION OP
+   01	HDW LITERAL ADDRESS
+   10	PROG BRANCH
+   11	--
+01	CMFRETURN ADDRESS
+10	TRAP TO C(CMF) IF PAGE FAULT
+11	 " IF PAGE FAULT OR PIREQ OR WATCHDOG BARK
+
+EXCEPTION OP
+
+0 0EE EEB
+
+WHERE EEEE=
+0	MPY INIT
+	DFMP INIT
+1	MPY CLNUP
+2	DIV CYC
+	DFDV CYC
+3	DIV QUOT
+	FDV QUOT
+4	FAD1
+5	DFN
+6	ASCH3
+7	JFFO
+10	UFA
+11	CLR BIS
+12	SET BIS
+13	POP TEST
+14	PUSH TEST
+15	STROBE CRYFLGS
+16	JFCL
+17	SL UNORM
+
+HDW LITERAL
+
+S 00- ---	UNUSED
+S 01R RRR	SET SCRATCHPAD ADDRESS TO RRRR
+S 1xx SSS	SET HDW LITERAL ADDRESS (xx  HDW LIT EXTENSION)
+
+	S means store AO data into scratch-pad
+
+	SSS
+	0	PC FLAGS,,PC	(SELECT VERSION FROM HL XTENSION)
+		0	EPC
+		1	PC+1
+		2	JPC
+		3	-
+	1	IR,,MA
+	2	MAP DATA	(SELECT VERSION FROM HLX)
+	3	IO DATA
+	4	PROCESSOR STATUS REGISTER (OTHER WORD OF PC DBL-WORD)
+	5	CONSOLE DATA
+	6	-
+	7	SCRATCH-PAD (COUNT SCRATCHPAD ADDRESS IF HLX=01
+;RANDOM CONTROL BITS
+
+I-RELEASE	Releases I-box to proceed with next instruction
+		on the following cycle. A PROG BRANCH condition
+		must be determined on the first cycle of the new
+		instruction.
+
+OPB RELEASE	Clears the I DATA READY flag. In this state, the
+		contents of the addressed AC (initially AC+1) appear
+		in the OPB. I DATA READY must be cleared after each
+		word fetched by the I-box since this is the condition
+		used by WAIT FOR I
+
+FETCH RQ	This is an indication to the I-box that the current
+		word in the OPB will not be needed after the end of
+		this cycle and another fetch can be started without
+		fear of cloberring something. If given with WAIT FOR I,
+		the request will be remembered until the wait is satisfied
+
+WAIT FOR I	This causes the E-box to hang before the execution of the
+		next micro-instruction until the I-box has fetched
+		data (I DATA READY). The L,R, and M loading conditions
+		are remebered from this micro-word until the data  becomes
+		available. If I DATA READY is not on and the I-box is
+		not active fetching, this generates a fetch request.
+
+STORE REQ	This is the store request for data that has been loaded
+		into the SM. If a Store Check has not been completed
+		yet, this causes the E-box to hang before the next micro-
+		instruction and the I-box suppresses any AC store requests
+		until the Store Check completes successfully.
+
+		(STORE ENABLES:  The I-box sets three store enable flags
+		when the instruction is passed to the E-box. These are for
+		memory data (enables STORE REQ and SM load), AC data (enables
+		SAC), and AC2 data (enables SAC2). This allows the same
+		micro-word to be used by instructions that store in memory,
+		ac's, both ac and memory, or memory with ac conditional
+		on IR 9-120.)
+
+SM		This field consists of the load enable (bit 0) and the source
+		bit (0=AO, 1=SO). If the SM is not available, the SM load enable
+		is on, and the store enable is on, the E-box hangs on this
+		micro-instruction until the SM is available.
+
+SAC		A store request (bit 0) and a source bit (0=AO, 1=SO)
+SAC2		A store request (bit 0) and a source bit (0=AO, 1=SO)
+
+SLOW		Extends a specified clock phase
+		0 NO DELAY
+		1 B1C0
+		2 A1B0
+		3 -
+;EXPONENT
+
+ARITH
+
+000	36 bits of constant for SL, SR input
+001	E-box decode special fcns
+010	I-box fetch control plus 22 bit address
+011	I-box store control plus 22 bit address
+1xx	Exponent and extension control
+
+EL	EXPONENT ADDER LEFT INPUT LATCH
+
+0	-
+1	CMM
+2	+L.EXPONENT
+3	-L.EXPONENT
+4	R[0-5]		;POSITION FIELD
+5	EX
+6	R[0-5]EO
+7	EO
+
+ER	EXPONENT ADDER RIGHT INPUT LATCH
+
+0	-
+1	0
+2	DN
+3	FN
+4	R[6-11]		;SIZE FIELD
+5	CMM
+6	EO
+7	CMMEO
+10	+R.EXP
+11
+12	MA(+110)
+13
+14	MA
+15
+16	+/- 72		;-72 IF MA18
+17
+;SC, MS
+
+SC	SHIFTER CONTROL LATCH
+0	0
+1	44-R[0-5]
+2	FN
+3	DN
+4	EO
+5	SHF
+6	CMS
+7	 "
+
+MS	MASKER CONTROL LATCH
+0	0
+1	R[6-11]
+2	FN
+3	DN
+4	EO
+5	SHF
+6	CMM
+7	 "
+
+EAL	EL ENABLE INTO ADDER
+0	0
+1	EL		;ENABLE FOR LEFT SIDE OF ADDER (UNGATABLE SIDE)
+
+EA	EXPONENT ADDER
+0	EAL
+1	EAL+1
+2	EAL+ER
+3	EAL+ER+1
+4	EAL-ER
+5	EAL-ER+1
+	EAL-ER+1|EAL: BIS (FC BYTE)
+6	EAL-1
+7	EAL-1+1
+
+EO	EXPONENT ADDER OUTPUT LATCH
+0	-
+1	EA
+	EA|BYTOV: ~FC~BIS (FC BYTE)
+
+EXP	EXPONENT RE-INSERTER
+0	STRAIGHT THRU
+1	EA[3-8],R[6-8]
+	    " |BYTOV: ~FC~BIS (FC BYTE)
+2	+EXPONENT|-EXPONENT: AL00
+3	+EXPONENT|-EXPONENT: NDIV (DIV CLNUP)
+	+EXPONENT|-EXPONENT: NDIVL0 (DIV QUOT)
+
+EX	EXPONENT HOLD REGISTER
+0	-
+1	EO
+;FC AND NORM
+
+FC	EXPONENT COMPARATOR MODE
+0	|L.EXP||R.EXP|
+1	POSITIONSIZE		;(FC BYTE)
+2	DNMS			;ASH OVERFLOW TEST
+3	DNMS[6-8]		;SECOND CYCLE "
+
+NORM	NORMALIZER MODE
+0	NORM			;UFA FORCES 0 OR -1
+1	DBL NORM		;MAX SHIFT OF 8
+2	NORM TEST		;RNDCRY=ROUNDM1~(M[2-29]=0L0)
+				;FNLUZ=[~L0L[9-35]=-1RNDCRY)(L0L[9-35]=0~RNDCRY)
+3	DBL NORM TEST		;RNDCRY=SOE0~(L0SOE[0-35]=0)
+				;FNLUZ=~L0L[9-35]=-1M[1-35]=-1RNDCRY or
+				;	L0L[9-35]=0M[1-35]=0~RNDCRY
+;EXTENSION CONTROL
+
+SLE
+0	SL CONTROL FIELD
+	MPY GRONK
+	UNORM GRONK
+1	LE
+2	M
+3	RE
+
+SRE
+0	0
+1	RE
+2	AOE
+3	AOE.R4
+	AOE.R4!0 : MPY AO NEEDS ZERO (MPY GRONK)
+	AOE.L	(DFDV CYC)
+
+AOE
+0	-
+1	AME
+
+LE
+0	-
+1	-
+2	AOE
+3	OPB
+
+RE
+0	-
+1	-
+2	AOE
+3	OPB
+
+SHX
+0	SC
+1	SLE
+	SC[7-8]	(UNORM GRONK) END BITS FROM AOE, NOT LE
+
+SOE
+0	-
+1	0
+2	SHX
+3	 "
+	SOE[-4,-1]=LE[32,35] (UNORM GRONK)
+	SOE[-4,-1]=AOE[36-39] ELSE
+
+
