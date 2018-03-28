@@ -1,0 +1,1929 @@
+XRUNSW=XRUNSW\/(200000,,0)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+;  Simplified Lexically Optimized Equalizer
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+	cfexec(&gripe,"gripe.trp[40,23]")
+		gripen="sloe.grp[13,23]"
+	cfexec(&cortab,"slodef.trp" )
+
+
+
+cfload(&llsort,"llsort[40,23]")
+
+tems<v,t1,t2>
+cfload(&strcom,"strcom[40,23]" )
+cfexec(&gstring,"sloio.trp[76,23]")
+
+
+;
+; use makstr/endstr to construct random messages
+; MAKSTR
+;  type whatever
+; ENDSTR  		.. returns a string
+;
+global<oldso>
+def makstr
+oldso=sysout
+sysout=filout (1,,new 'string)
+::
+
+def endstr<>
+frls sysout
+sysout=oldso
+::
+
+def msg<mes,a,b,c><so>
+so=sysout
+if errstr,	[v=errstr],[v=new 'string]
+sysout=filapp(1,,v)
+fappnd sysout
+
+kprstg mes
+kprstg A
+kcput (@ )
+kprstg b
+kcput (@ )
+kprstg c
+kprcr
+errstr=frls sysout
+sysout=so
+::
+
+def err3<a,b,c><>
+msg( "?ERROR - ",a,b,c)
+::
+def warn3<a,b,c>
+msg( "%Warn    ",a,b,c)
+::
+
+def err2<a,b>
+err3(a,b,"")
+::
+def err1<a>
+err3(a,"","")
+::
+def warn1<A>
+warn3(A,"","")
+::
+def warn2<A,B>
+warn3(A,B,"")
+::
+
+DEF SAVLST<PT,LST>
+	LINK NEW 'PAIR=WW LST
+	ID V=PT
+	WW LST=V
+::
+
+DEF FINDS<A,L><P>
+
+P=LPART //L	;search backward list for entry point
+UNTIL P=0,
+	[
+	IF STRCOM(A,ID ID P)>=0,
+		[WHEN V=0,EXIT ID P
+		 L=ID P,P=0],
+		[P=LINK P]
+	]
+;
+; search forward list to the winner (if any)
+;
+UNTIL L=0,	[if fn strcom(a,id l)=0,exit l
+		 if v<0,exit 0,l=link l]
+EXIT 0
+::
+
+DEF FINDC<A,L>
+UNTIL L=0,	[if fn symcom(a,id l)=0,exit l
+		l=sibs l]
+EXIT 0
+::
+
+;
+; ENTER enter a new symbol in a list
+; ID must be a string
+; the symbols are entered alphabetically.
+;  when the list becomes long enough, a FAST SEARCH
+;  list is made that makes the O(N) search for a match
+;  into an O(SQUR(N))
+;
+;  POINTER returned is FAST,,BASE
+;   the routine FINDS will use the fast search stuff
+;   if it is there
+
+DEF ENTER<A,B><P,OP>
+
+IF FINDS(A,B),
+	[IF STYPE A/=STYPE B,
+	  [ERR2(ID A,"invalid redefinition of symbol")]
+	EXIT B
+	]
+; new symbol, insert alphabetically
+P=B
+OP=0
+UNTIL P=0,
+	[
+	IF STRCOM(ID A,ID P)<=0,
+		[IF OP=0,
+			[LINK A=P,V=A,GO BEX],
+			[LINK A=LINK OP,LINK OP=A,V=B,GO BEX]
+		]
+	OP=P
+	P=LINK P
+	]
+IF OP/=0,
+	[LINK OP=A,V=B,GO BEX],
+	[LINK A=0,V=A,GO BEX]
+
+BEX:	; v=correct first pointer.  possibly build a fast
+	; search list
+	A =RPART //V		;save head
+	P=LENGTH A
+	IF P>10.,
+		[
+		B=LPART //B
+		OP=XFIX SQRT(XFLOAT P)
+		IF B,
+			 [V=LENGTH B],	[V=0]
+		 IF V<OP,
+		   [SCRAP B	; time to build a new one
+		    B=0
+		    P=A
+		    UNTIL P=0,
+			[
+			REPEAT OP,[WHEN P/=0,P=LINK P]
+			WHEN P,
+			 [	LINK NEW 'PAIR=B
+				B=V
+				ID B=P
+				P=LINK P
+			 ]
+			]
+		    ]
+		LPART //A=B
+		]
+EXIT A			
+::
+
+def sbug<a,b>
+kprstg a
+kprstg "  -  "
+kprstg b
+kprcr
+xren
+::
+
+
+def sym<name><P>
+
+if finds(name,allfld curmem),
+		[if $NOOLD/\NAME,
+			[err2(name,"can't redefine old symbol")
+			goto newf
+			]
+		P=V
+		],
+		[p=new 'field
+		id p=copy name
+		allfld curmem=enter(p,allfld curmem)
+		]
+
+savlst(p,//lstdef)
+v=p
+
+::
+
+def mark<bas,fb,nb,val><bp,c>
+bp=bytset(1,fb-nb+1,bas)
+c=0
+until nb<=0,
+	[
+	if bytget(bp),c=1
+	bytput(bp,val),bp=bytinc bp,nb=nb-1
+	]
+exit c
+::
+
+DEF F<NAME,P,S><x>
+	x=sym (name)
+	ftype x=$fld
+	if mandb x=0,mandb x=fn nwd
+	if mark(mandb x,p,s,1),
+		[err2(name,"field definition conflicts")]
+	fld.p x=p
+	fld.s x=s
+	lasfld=v=x
+::
+
+def fdepo<src,dest,val><bp,S>
+
+if src*dest<=0,xren
+	bp=bytset(1,FLD.P SRC,DEST)
+
+repeat FLD.S SRC,
+	[bytput(bp,bytget(bp)\/val),val=val__-1
+	 bp=bytdec bp
+	]
+if val,
+	[err2("value too large for field",id src)]
+::
+
+def fs<name><x>
+	x=sym name
+	sibs x=child lasfld
+	child lasfld=x
+	parent x=lasfld
+::
+
+
+def ref<X>
+link new 'pair=v
+refcw=v
+id v=x
+::
+def refs<I><>
+i=refcw
+until i=0,
+	[
+	id i?
+	id i!	
+	i=link i
+	]
+::
+def iorchk<F,T><A,B,C,D,I>
+; same as iorsym (below) except check only
+A=MANDB F
+B=MANDB T
+C=MANDV F
+	WHEN C=0,	[C=IORZER]
+D=MANDV T
+
+if b=0,[B=NWD,MANDB T=B]
+if d=0,[D=NWD,MANDV T=D]
+
+	repeat SZW CURMEM,
+	[
+if a,	[I= WW A/\WW B
+	 IF I,
+		[	; possible conflict ..
+		IF (WW C#WW D)/\I/=0,
+		  [EXIT 1]
+		]
+	WHEN LINT//F,
+		[WHEN WW A/\(WW C#WW D)/=0,EXIT 2]
+
+	]
+	a=a+1
+	b=b+1
+	c=c+1
+	d=d+1
+	]
+
+; pc control
+	D=FLD.PC F
+	IF D,	;pc control included?
+	 [
+	 C=FLD.PC T
+	 IF C,
+	  IF V/=D,
+		[
+		exit 1
+		]
+	 ]
+exit 0
+::
+
+def iorsym<F,T><A,B,C,D,CONF,I>
+
+REF F
+A=MANDB F
+B=MANDB T
+C=MANDV F
+	WHEN C=0,	[C=IORZER]
+D=MANDV T
+CONF=0		;no conflicts yet
+
+if b=0,[B=NWD,MANDB T=B]
+if d=0,[D=NWD,MANDV T=D]
+
+	repeat SZW CURMEM,
+	[
+if a,	[I=WW A/\WW B
+	if I,if conf=0,	;give message only once
+		[	; possible conflict ..
+		IF (WW C#WW D)/\I/=0,
+		  [ERR2(ID F,"causes a field conflict")]
+		CONF=ON
+		]
+	ww b=WW A\/WW B
+	]
+	ww d=ww d\/ww c
+
+	a=a+1
+	b=b+1
+	c=c+1
+	d=d+1
+	]
+; pc control
+	D=FLD.PC F
+	IF D,	;pc control included?
+	 [
+	 C=FLD.PC T
+	 IF C,
+	  IF V/=D,
+		[
+		a=fn getpci(c)
+		b=fn getpci(d)
+		makstr
+		kprstg id a
+		kprstg " and "
+		kprstg id b
+		when id t,
+		 [kprstg " for ",kprstg id t]
+		err2("comflicting PC controls ",endstr)
+		]
+	FLD.PC T=FLD.PC F
+	]
+::
+def xorsym<F,T><A,B,C,D,CONF,I>
+
+A=MANDB F
+B=MANDB T
+C=MANDV F
+	WHEN C=0,	[WHEN IORZER=0,IORZER=NWD,C=IORZER]
+D=MANDV T
+CONF=0		;no conflicts yet
+
+if b=0,[B=NWD,MANDB T=B]
+if d=0,[D=NWD,MANDV T=D]
+
+	repeat SZW curmem,
+if a,	[
+	WW B=WW B/\(\\WW A)
+	WW D=WW D/\(\\WW C)
+	a=a+1
+	b=b+1
+	c=c+1
+	d=d+1
+	]
+::
+
+def fv<name,val><X>		;subfield, no specifications
+	x=fs name
+	if mandv x=0,mandv x=nwd
+	fdepo(lasfld,mandv x,val)
+	iorsym(lasfld,x)
+v=x
+::
+
+
+def dopsudo<A>
+fn saddr a
+::
+def maksix<str string><S six,chn,I>
+chn=filin(1,,str)
+i=0
+until i=6,
+	[
+	fchin chn
+	if v>=40,	[if chrtab(v)/\$lc,v=v-40
+			 v=v-40
+			],
+			[v=0]
+	s=s__6
+	s=s+v
+	i=i+1
+	]
+if s,until s/\(770000,,0),s=s__6
+frls chn
+v=s
+::
+
+def entpsu<><B,NAM,FNN,STR,FNK,L>
+L=//PSUDOS
+namit:
+nam=copy gstring($SEP+$SPC)	;psudos are single syllables
+if strcom(nam,"defops")=0,
+	[kill nam
+	 l=//DEFOPS
+	 go namit
+	]
+if strcom(nam,"condops")=0,
+	[kill nam
+	l=//CONDOP
+	go namit
+	]
+fnn=copy gstring($SEP+$SPC)	;so are trip functions
+str=copy gstring($EOL)
+fnn=maksix fnn
+
+if sylook fnn,if sclass v=srout,if sposn v=0,
+	[
+	fnk=saddr v
+	b=new 'psusym
+	saddr b=fnk
+	sval b=fnn	
+	id b= nam
+	stype b=$PSUDO
+	scomm b=str
+	WW L=enter(b,WW L)
+	exit
+	]
+err2(nam,"invalid pseudo op spec")
+
+::
+
+entpsu
+PSEUDO entpsu enter a new routine in the psudo op table
+
+	cfexec(&usedp,"slomem.trp")
+
+def psuds<m,l>
+kprstg m
+kprstg "
+routin	psudo name	comment
+"
+until l=0,
+	[
+	kpunsx sval l
+	kcput 11
+	kprstg id l
+	kspace (20-stlen id l)
+	when scomm l,kprstg scomm l
+	kprcr
+	l=link l
+	]
+::
+
+def lstpsu<><L,SO>
+	punchl
+so=sysout
+when sysin/=0,
+	[sysout=listch]
+	psuds ("globally recognized",psudos)
+	psuds ("recognized in definitions only",defops)
+	psuds ("recognized during false condioionals",condops)
+sysout=so
+
+::
+
+entpsu
+LIST-PSUDOS lstpsu list all the psudo ops
+def pushx<x>
+v=stkidx+(1,,1)
+if v>0,	["program stack overflow"?,xren,xexit]
+gstack(v)=x
+stkidx=v
+::
+
+def popx<>
+
+v=gstack(stkidx)
+t1=stkidx-(1,,1)
+if t1/\400000,	["program stack underflow"?,xren,xexit]
+stkidx=t1
+::
+
+
+
+def comment
+	until getchr=12,[if v=32,[lookch=32,exit]]
+::
+entpsu
+; comment eat the rest of the line as a comment
+
+def comen2<><X>
+
+x=gnspace
+until gnspace=x,[if v=32,[lookch=32,exit]]
+::
+ENTPSU
+COMMENT comen2 accept a comment surrounded by an arbitrary delimiter
+
+def $and<a,b><>
+	; return -1 if a is a subset of b
+	; return 0 if a is unreleated to b
+	; return 1 if a and b are mixed
+v=szw curmem-1
+t1=a
+t2=b
+until v<0,
+	[
+	if ww t1/\ww t2,
+		[ ; some bits correspond, see if a subset
+		v=szw curmem-1
+		t1=a
+		t2=b
+		until v<0,
+		[ if ww t1/\ww t2/=ww t1,[exit 1 ]; mixed
+		 t1=t1+1
+		 t2=t2+1
+		 v=v-1	
+		]		
+		exit -1 ; subset
+		]
+	t1=t1+1
+	t2=t2+1
+	v=v-1
+	]
+exit 0	; unrelated
+::
+global<supdef>
+	supdef=1
+
+def getrn<mi,ma,erm><val>
+fn getexp(gstring($spc+$sep))
+if v=0,
+	[val=t1
+	if erm/\(1,,0)=0,
+		err2(erm,"must be followed by a valid expression")
+	exit 0
+	],
+	[ ; got a good number, range check it.
+	if t1>=mi,if t1<=ma,exit	;ok
+
+	val=t1
+	makstr
+	kprstg "value "
+	kproct val
+	kprstg " is unacceptable for "
+	kprstg erm
+	kprstg ". The valid range is "
+	kproct mi
+	kprstg " to "
+	kproct ma
+	err1	endstr	
+	v=0
+	]
+
+::
+
+
+def enset
+fn getrn(0,1,"SUPPLY-DEFAULTS")
+supdef=v
+::
+
+entpsu
+SUPPLY-DEFAULTS enset 0 to supress defaults in code output 1 to restore
+cfload(&apsort,"apsort[40,23]" )
+
+
+; make a default filling tree for data structure
+
+def mdtree<><I,J,N>
+
+i=allfld curmem
+j=0
+n=0
+until i=0,	; make J a pairs list of interesting fields
+	[if parent i=0,
+	  if child i/=0,
+	   if defcld i/=0,
+		[id new 'pair=i
+		 link v=j
+		 j=v
+		 n=n+1
+		]
+	i=link i
+	]
+
+if n,		; make I an array of pointers
+	[
+	i=anew(n,'point)
+	until j=0,
+	  [n=n-1
+	   v=id j
+	   ww(i+n)=v
+	   fld.s v=\\fld.s v		;complement the s fields
+					;to make them sort right
+	   j=delete(j,j)
+	  ]
+; sort on P
+	apsort(I,asize i,&FLD&.PS)	;sort on P field
+
+	n=asize i
+	until n=0,
+	 [
+	  n=n-1
+	  v=ww(i+n)
+	  fld.s v=\\fld.s v;		put the s field back
+	  ]
+
+	]
+
+kill defarr curmem
+defarr curmem=i
+%deffs=0
+::
+
+def fsetto<src,dest,val><bp,S>
+
+if src*dest<=0,xren
+	bp=bytset(1,FLD.P SRC,DEST)
+
+repeat FLD.S SRC,
+	[bytput(bp,val)
+	 bp=bytdec bp
+	]
+::
+
+
+def decode<F><I,N,P,J>
+
+	when codmb=0,	codmb=nwd
+	when codmv=0,	codmv=nwd
+	when codxt=0,	codxt=nwd
+	when codewrd=0,	codewrd=new 'field
+
+	aclear(codmb,szw curmem)
+
+	copyw (mandv f,codmv,szw curmem)
+	mandv codewrd=codmv
+	mandb codewrd=codmb
+
+	kill pntarr
+	pntarr=0
+	scrap fulset
+	fulset=0
+;
+; find given values not defaulted
+I=ALLFLD CURMEM
+UNTIL I=0,		; gather all possible consistant values
+	[
+	copyw(mandb i,codxt,szw curmem)
+	fsetto(i,codxt,0)	;clear the field
+
+	p=mandb i
+	mandb i=codxt
+	iorchk(-1,,i,codewrd)
+	mandb i=p
+
+	if v=0,
+		[
+		id new 'pntt=i
+		link v=fulset
+		fulset=v
+		]
+	i=link i
+	]
+
+I=fulset
+until i=0,
+	[
+	v=parent id i
+	if v,if altsib id i=0,	; tag parents
+		[if find(v,fulset),
+		 [
+		  siblnk i=downlnk v
+		  downlnk v=i
+		  uplink i=v
+		 ]
+		]
+	p=altsib id i
+	if p,	; tag alternates present
+	 [
+	 until p=0,
+		[if find(id p,fulset),
+		 [
+		t1=v
+		until uplink t1=0,[t1=uplink t1]
+		uplink t1=i
+		uplink v=i
+		siblnk v=downlnk i
+		downlnk i=v
+		 ]
+		p=link p
+		]
+	 ]
+	i=link i
+	]
+
+; tag asymetric parent fields
+I=fulset
+until i=0,
+	[
+	if downlnk i=0,if fld.s id i,
+	[
+	p=child id i
+	until p=0,
+	[
+	if find(p,fulset),
+		[
+		v=parent id v
+		if v,
+		 [if find(v,fulset),
+		[
+		uplink v=i
+		downlnk i=v
+		mustp i=on
+		]
+		 ]
+		]
+	p=sibs p
+	]
+	]
+	i=link i
+	]
+;
+; tag bottom level fields dominated by other bottom level fields
+i=fulset
+until i=0,
+[if downlnk i=0,
+[	j=link i
+	iorsym(id i,codewrd)
+until j=0,
+	[
+	if downlnk j=0,
+	[
+	if $and(mandb id i,mandb id j)<0,[uplink i=j
+					nopfl i=on
+					]
+	if $and(mandb id j,mandb id i)<0,[uplink j=i
+					nopfl j=on
+					]
+	]
+	j=link j
+	]
+]
+i=link i
+]
+
+; final step, make print array sorted by fld.ps
+i=fulset
+v=0
+until i=0,
+	[
+	if uplink i=0,[v=v+1]
+	i=link i
+	]
+pntarr=anew(v,'point)
+i=fulset
+until i=0,
+	[
+	if uplink i=0,[ww v=(i,,id i),v=v+1]
+	i=link i
+	]
+apsort(pntarr,asize pntarr,&fld&.ps)
+::
+
+def kprssh<X><ch>
+ch=filin(1,,x)
+until fchin ch=@',	[if v=32,go exx,kcput v]
+exx:	frls ch
+::
+
+def pfval<x><val,bp>
+bp=bytset(1,fld.p x-fld.s x+1,mandv codewrd)
+val=0
+repeat fld.s x,
+	[
+	val=(val__1)+bytget(bp)
+	bp=bytinc bp
+	]
+pctl=10	
+kcput@(
+print val
+kcput@)
+::
+
+def pntl<l><P,X>
+when l,
+	[
+	until l=0,
+	 [
+	p=l
+	if sibpf p=0,
+	[until downlnk p=0,
+		[if mustp p,
+			[kpasc (@ @ ),kprssh id id p]
+		p=downlnk p
+		]
+	x=id p
+	 kcput (@ )
+	 kprssh id x  
+	 if fld.s x,[pfval(x)]
+	]
+	l=siblnk l
+	]
+	]
+::
+
+def pntc<x><n,p>
+n=0
+until x=0,
+	[
+	v=x
+	until downlnk v=0,[v=downlnk v]
+	t2=id v
+	t1=parent t2
+	if t1,
+		[if defcld t1=t2,
+			[sibpf v=on],
+			[goto doit]
+		],
+		[doit:sibpf v=off,
+		  when nopfl v=0,[p=id id v,n=n+1]
+		]
+	sibpf x=sibpf v\/nopfl v
+	x=siblnk x
+	]
+if n=1,
+	[
+	n=filin(1,,p)
+	until fchin n=32,[if v=@',[frls n,exit 1]]
+	frls n
+	exit -1
+	]
+v=n
+::
+
+def pdeco<><I,P,F>
+
+p=pntarr
+when p,
+[i=p+asize p
+until p>=i,
+	[
+	; do not print single defaults
+	if downlnk lpart p=0,
+		[pntl lpart p,kcput (@ )],
+	[
+	if pntdef,[v=1,go n]
+	if pntc downlnk lpart p,
+	 [
+      n: f=v
+	 if f>0,
+		[kprstg id rpart p
+		kpasc(@[)
+		]
+
+	 pntl(downlnk lpart p)
+
+	 if f>0,[kpasc(@ @])]
+	 kcput (@ )
+	]
+	]
+	p=p+1
+	]
+]
+kprcr
+
+::
+
+cfload(&nones,"trp:nones")
+
+def bitchz<p array><i,bp,state,n,s>
+
+bp=bytset(1,0,p)
+state=-1
+n=0
+s=0
+pctl=10.
+until n>=sz curmem,
+	[
+	bytget bp
+	if v=0,
+		[if state<0,state=n],
+		[if state>=0,
+		  [pst:
+		   if s=0,[makstr,s=1,kprstg "bits "]
+			if n=state+1,[print state],
+				[print state,kcput@-,print (n-1)]
+		   kcput @,
+		  state=-1
+		  ]
+		]
+	bp=bytinc bp
+	n=n+1
+	]
+if state>=0,goto pst
+if s,exit endstr,exit 0
+::
+
+def bitchf<CW><state,i,p,c>
+P=COPY MANDB CW
+I=fulset
+state=0
+until i=0,
+	[
+	if downlnk i=0,
+	[if $and(mandb id i,p)>=0,
+		[
+		c=id i
+		when parent c,[c=parent c]
+
+	   when fld.s c,
+		[
+		fsetto(c,p,1)
+		id new 'pair=c
+		link v=state
+		state=v
+		]
+
+		]
+	]
+	i=link i
+	]
+kill p
+
+if state=0,[exit 0],
+	[
+	i=state
+	until i=0,
+	 [p=link i
+	until p=0,
+	 [
+	 if id i,if id p,
+	 [if $and(mandb id i,mandb id p)<0,
+		[id i=0]
+	 if $and(mandb id p,mandb id i)<0,
+		[id p=0]
+	 ]
+	 p=link p
+	]
+	i=link i
+	]
+	makstr
+	i=state
+	until i=0,
+	 [if id i,
+		[
+		kprssh id id i
+		kcput (@ )
+		]
+	 i=link i
+	 ]
+	exit endstr
+	]
+::
+
+
+def MISBIT<cw><P array,I,C>
+	; check for bits whose values are unspecified
+
+p=mandb cw
+i=szw curmem-1
+c=sz curmem
+until i<0,
+	[C=C-NONES P(I);	 get number of leading ones
+	IF C\36./=0,goto badb
+	i=i-1
+	]
+	exit
+
+badb:	; here if some bits are missing
+	decode cw;	decode it
+	p=bitchz(mandb codewrd);bitch about failings of definitions
+
+when p,[warn3("error in defintions,",p,"cannot be decoded")]
+
+; now see about fields that he may have omitted, and complain some
+	p=bitchf(cw)
+when p,[warn2("missing field specifications",p)]
+
+::
+
+def endfaul<cw><I,D,P>	;supply defaults.  currently
+			;by an arbitrary method.
+
+IF %DEFFS,mdtree
+IF supdef=0,exit
+I=DEFARR CURMEM
+IF I,
+[D=I+ASIZE I
+until I>=D,
+	[
+	; this guy wants to be filled!
+	P=WW(i)
+	if $and(mandb p,mandb cw)>=0,		;get anded code
+			iorchk(p,cw)
+	if v=0,		; zero, mean no overlap
+	  [
+  	  iorsym(defcld p,cw)
+	  when ftype p=$label,
+		[
+		fn reslab(id defcld p,p)
+		]
+	  ]
+notnow:	I=I+1
+	]
+]
+misbit cw
+
+::
+	cfexec(&getnpc,"slopc.trp")
+
+def endfld<><>		;finish a field definition
+if nextpc,
+	  [fld.pc curwrd=fn makpci nextpc]
+%deffs=%deffs+1
+curwrd=0
+::
+
+def endwrd<><X>
+
+if define,	; still defining?
+	[
+	err2(define," -- defintion not complete" )
+	define=kill define
+	]
+until stkidx/\777777=0,
+	[x=popx
+	err2(x,"  is unrecognized junk")
+	kill x
+	]
+
+if curwrd,
+	[	; curwrd is new symbol
+if id curwrd=0,
+	[
+	marku dot curmem		;mark current location used
+
+if lrefs naflab,			;resolve references to .+1
+	[
+	fn resolve naflab
+	]
+
+	if fld.pc curwrd,[nextpc=pc.rt getpci fld.pc curwrd]
+
+	pendpc=getnpc;		select next pc ..
+	link curwrd=outcod curmem
+	id curwrd=dot curmem
+	outcod curmem=curwrd
+	endfaul(curwrd)		;supply defaults
+	savlst(curwrd,//lstcod)
+	dot curmem=pendpc
+
+if debug,[sibs curwrd=refcw
+	 refcw=0],
+	 [scrap refcw,refcw=0]
+	],
+	[ ;id curwrd not zero, this is a field definition
+	endfld
+	]
+
+	]
+scrap refcw
+nextpc=0
+refcw=0
+curwrd=0
+lasfld=0
+define=0
+::
+entpsu
+$ endwrd ends a field definition or microcode word
+
+def novalue<>
+if curwrd,
+ if id curwrd,
+  [if lasfld,
+	[
+	sibs curwrd=child lasfld
+	child lasfld=curwrd
+	parent curwrd=lasfld
+	]
+    endfld
+   ]
+curwrd=0
+::
+entpsu
+DEFOPS NOVALUE novalue special field value for field definitions
+
+
+def defsym<>
+if stkidx/\777777,
+	[
+	if define,[err2(define,"nested = not permitted"),kill define]
+	define=popx
+	],
+	[ ; most probably a field being redefined
+	if curwrd=0,
+		[err1"no symbol before ="],
+		[
+		if refcw,
+		 [err2(id id refcw,"is already defined")],
+		 [sbug("","no reference before =")]
+		]
+	]
+::
+entpsu
+= defsym define a new symbol
+
+;return -1,value if a number,
+;return symbol,value if a symbol or defined label
+
+	CFEXEC (&OPER,"SLOEXP.TRP")
+
+def allnum<s><X>
+if finds(s,operat),	[v=-2,t1=0],
+if finds(s,labels),	[if lbldef v,t1=lval v,v=0],
+if finds(s,values),	[t1=sval v],
+if number s,		[v=-1,t1=$numval],
+			[v=0]
+::
+
+def getexp<s><X>
+if allnum(S),	[REREAD(S),FN OPER,T1=POPN,V=-2]
+::
+
+def donumb<n><P>
+if define,
+	[
+	if lasfld,
+	 [FV(DEFINE,N),CURWRD=V,ENDFLD],
+	 [
+	if finds(define,values),
+		[p=v],
+		[
+		 p=new 'symb
+		 stype p=$num
+		 id p=copy define
+	 	 values=enter(p,values)
+		]
+	 sval p=N
+	 savlst(p,//lstval)
+	 ]
+	define=kill define
+	exit 1		;show we ate it
+	],
+	[if curwrd=0,exit 0
+	if id curwrd,[fv(id curwrd,n),endfld,exit 1]
+	]
+
+exit 0
+::
+
+global<sibfld,point>	;scratch array for sibval
+	sibfld=new 'field
+
+DEF ALTCHK<X,S><T,Y>
+T=ALTSIB X
+UNTIL T=0,
+	[Y=ID T
+	IF FINDC(S,CHILD Y),[FN SIBVAL(Y,S),EXIT]
+	T=LINK T
+	]
+EXIT 0
+::
+
+DEF SIBVAL<X,S><T,Y>	;get a value, check against child list
+
+IF FINDC(S,CHILD X),
+	[
+	T=V
+	IF FTYPE T,
+		[FN DOFLD(T)],
+		[IORSYM(T,CURWRD)]
+	EXIT 1
+	],
+	[IF ALTCHK(X,S),EXIT]
+
+IF FN GETEXP S,
+	[
+	T=T1
+	COPYW(X,SIBFLD,TYSIZE FIELD)
+	V=MANDV X
+	IF V,	[COPYW(V,SIBNWD,SZW CURMEM)],
+		[ACLEAR(SIBNWD,SZW CURMEM)]
+	FDEPO(X,SIBNWD,T)
+	MANDV SIBFLD=SIBNWD
+	IORSYM(SIBFLD,CURWRD)
+	],
+	[EXIT 0]
+EXIT 1
+::
+
+DEF DOFLD<X><Y,S,B>
+REFCW X
+
+IF DEFINE,
+	[CURWRD=SYM DEFINE,DEFINE=KILL DEFINE]	;defining a field
+
+	B=0
+IF CURWRD=0,
+	[CURWRD=NEW 'FIELD
+	]
+IF FTYPE X/=$FLD,
+	[IORSYM(X,CURWRD)]
+IF FTYPE X,
+	[ ;value not completely specified
+STR:	S=GSTRING($SEP+$SPC)
+
+	IF STRCOM(S,"[")=0,
+		[
+		S=GSTRING($SPC+$SEP)
+		IF STRCOM(S,"]")=0,
+		  [
+		  IF ID CURWRD,
+			[
+			IF CHILD CURWRD=0,
+			  [
+			   CHILD CURWRD=CHILD X
+			    FTYPE CURWRD=FTYPE X
+			    FLD.S CURWRD=FLD.S X
+			    FLD.P CURWRD=FLD.P X
+			    FLDFN CURWRD=FLDFN X
+			    IORSYM(X,CURWRD)
+			    GOTO ENDB
+			   ]
+			ERR3(ID CURWRD,"already has a field spec, so can't get",ID X)
+			GOTO ENDB
+			]
+		  ]
+		B=B+1
+		],
+	IF STRCOM(S,"]")=0,	[B=B-1
+				WHEN B<0,REREAD S
+				WHEN B<=0,GOTO ENDB,GO STR]
+VAL:	IF FTYPE X=$FLD,[SIBVAL(X,S)],
+	 IF FTYPE X=$LABEL,
+		[IF ALTCHK(X,S)=0,[REREAD S,FN (FLDFN X)(X)]]
+
+	IF V=0,
+	 [ERR3(S,"not a valid subfield of",ID X)
+	  WHEN STRCOM(S,"$")=0,[B=0,REREAD S] 
+	 ]
+	WHEN B>0,GO STR
+ENDB:	]
+::
+
+	cfexec(&%END,"slocnd.trp")
+
+
+def dosym<s><c>
+
+if cstidx/=0,
+ if cstack(cstidx)>=0,
+	[
+	if finds(s,condops),	[fn saddr v,go exx],
+	if gather,		;gathering arg list
+		[c=new 'macag,id c=copy s,
+		argidx=argidx+1
+		maidx c=argidx
+		arglst=enter(c,arglst)]
+	go exx
+	]
+
+if finds(s,macros),		[fn invmac(v),go exx]
+
+if finds(s,psudos),		[fn saddr v,go exx]
+
+if curmem,
+  if finds(s,allfld curmem),	[fn dofld(v),go exx]
+
+if lasfld,go deff
+if curwrd,if id curwrd,go deff
+if define,
+  [deff:
+  if finds(s,pcrouts),		[NEXTPC=PC.RT V,go exx]
+  if finds(s,defops),		[FN SADDR V,go exx]
+
+  if getexp(s),		[C=T1
+			IF FN DONUMB(C)=0,
+				 PUSHN(C)
+			GO EXX
+			 ]
+
+   ]
+	pushx copy s
+
+exx:	if lookch=12,
+	[if aidx>0,
+	 [err1"garbage expression ignored"
+	 aidx=0
+	 ]
+	until stkidx/\777777=0,
+	[s=popx
+	err3("garbage token!"",s,"!"ignored")
+	kill s
+	]
+	]
+	exit
+::
+
+
+
+def mainlup
+	lookch=0
+
+until lookch=32,
+	[
+	gstring($spc+$sep)
+	if stchr v,dosym v
+	]
+
+::
+
+
+
+def init00
+stkidx=-asize gstack+1,,0
+$radix=10
+define=0
+savstr=0
+pagen=1
+linen=0
+listing=1
+curlin=kill curlin
+curlin=new 'string
+errstr=kill errstr
+ffseen=0
+lfseen=0
+lstcod=0
+lstdef=0
+::
+DEF %INSFIL<X>
+if x,
+	[
+	if fbwext x,fbext x=&SLO
+	readfil x
+	if sysin<0,[err3("file",x,"not found")],
+		   [
+		when curlin,[stadd(15,curlin),stadd(12,curlin)]
+		    fn listln
+		    fn loceject
+		    pagen=1
+		    linen=0
+		   ]
+	]
+::
+
+def %insert<><X>
+
+X=gstring($eol)
+X=wparse copy x
+%INSFIL(X)
+::
+
+entpsu
+.insert %insert insert another file into the assembly
+
+def file<><spec,filen>
+filen=0
+spec=gstring($EOL)
+init00
+comlin=copy spec
+spec=wparse copy spec
+v=copy spec
+fbext v=&LST
+listch=filout v
+when listch>0,
+[		
+until spec=0,
+	[
+	if fbwext spec,	[fbext spec=&SLO]
+	%insfil copy spec
+	when sysin>0,
+		[
+		mainlup
+		frls sysin
+		]
+	spec=delete(spec,spec)
+	filen=filen+1
+	]
+fcls listch
+]
+listch=0
+frls listch
+frls sysin
+kcteof
+lookch=0
+savstr=0
+::
+sclass 'file=keywd
+
+
+def deffld<><newf,s,p>
+
+if curwrd,if id curwrd,go fldok
+
+if define=0,[err1"no symbol before field definition",exit]
+
+fldok:	getrn(0,36.,"S field")
+	if v,s=t1,s=1
+	getrn(S-1,SZ CURMEM-1,"P field")
+	if v,p=t1,p=0
+	if define,v=define,v=id curwrd
+	f(v,p,s)
+	define=kill define
+
+::
+entpsu
+FIELD deffld declare a new field in microcode word
+;
+;  default is a special operator in field defineition logic,
+;  sets the last field value defined to be the default.  The
+;  effect of setting a default value is to require that the
+;  field either be completely specified by the microcode
+;  input, or be supplied with the default value when the $ is seen.
+DEF DEFAULT
+IF LASFLD=0,
+	[err1"no current field name to be defaulted"],
+	[
+	if defcld lasfld,
+		[err2(id lasfld,"multiple default values")]
+	defcld lasfld=child lasfld
+	]
+::
+entpsu
+DEFAULT default special field value for field definitions
+
+
+
+def newlab<L>
+	L=COPY L
+	ID NEW 'LABEL=L
+	L=V
+	LABELS=ENTER(L,LABELS)
+	V=L
+::
+
+def dotval<>
+v=dot curmem
+::
+
+newlab "."
+	lblfnk v=fc dotval
+	lbldef v=on
+newlab "NAF"
+	lblfnk v=fc dotval
+	lbldef v=off
+naflab=v
+
+def res1<R point,VAL>	;resolve one label reference
+v=mandv lword r
+if v=0,v=nwd
+fdepo(id r,v,VAL)
+::
+
+
+def resolve<L><I>	;resolve all the references to p
+
+I=lrefs l
+if i,
+[	until i=0,
+	[
+	if lblfnk l,	[fn lblfnk l],[v=lval l]
+	res1(i,v)
+	i=link i
+	]
+scrap lrefs l
+lrefs l=0
+]
+::
+
+
+def maklab<><L,LL>
+
+if stkidx/\777777,
+	[
+	LL=POPX
+
+IF FINDS(LL,LABELS),
+	[	; old label?
+	L=V
+	IF LBLDEF L,
+		[
+		err2(LL,"multiply defined label")
+		kill ll
+		exit
+		 ]
+	],
+	[
+	L=NEWLAB(LL)
+	KILL LL
+	]
+
+	LVAL l=DOT CURMEM
+	LBLDEF l=ON		
+	RESOLVE L		;resolve references
+	],
+	[
+	if getrn(0,memax curmem,"set lecation with :"),
+	 [dot curmem=t1]
+	]
+::
+
+entpsu
+: maklab declare a label
+
+
+DEF RESLAB<L,FLD><P>
+
+IF FINDS(L,LABELS)=0,	[NEWLAB(L)]	;forward reference
+	[
+	L=V
+;record a reference
+IF CURWRD=0,	[SBUG("","no current word in GETLAB"),v=0]
+	p=new 'labref
+	id p=fld
+	link p=lrefs l
+	lrefs l=p
+	lword p=curwrd
+
+if lbldef l,	[resolve(l)]
+
+	]
+::
+
+DEF GETLAB<FLD><L,P>
+REFCW FLD
+	L=GSTRING($SEP+$SPC)
+	REREAD L
+	L=COPY L
+
+IF GETRN(0,MEMAX CURMEM,1,,"memory location"),
+	[P=T1
+	V=MANDV CURWRD
+	WHEN V=0,MANDV CURWRD=NWD
+	FDEPO(FLD,V,P)
+	]
+	IF FINDS(L,LABELS),RESLAB(L,FLD)
+	KILL L
+v=1
+::
+
+;
+;  define the type of the last field value defined to be LABEL
+;  this allows its symbols to be forward referenced. And disallows
+;  having random names for its values
+;
+def fldlab<>	;define a field (current) to absorb a label
+
+IF LASFLD=0,
+	[err1"no field name to be a label type"],
+	[
+	ftype lasfld=$LABEL
+	fldfn lasfld=fc getlab
+	]
+::
+
+entpsu
+DEFOPS LABEL fldlab special field value for field definitions
+
+def fldalw<><X>
+x=gstring($spc+$sep)
+if finds(x,allfld curmem)=0,
+	[err3("field",x,"not known")],
+	[x=v
+	id new 'pair=x
+	link v=altsib lasfld
+	altsib lasfld=v
+	]
+::
+entpsu
+DEFOPS ALLOW fldalw allow other subfields in context
+
+def modfld<><X>
+x=gstring($spc+$sep)
+if finds(x,allfld curmem)=0,
+	[err3("field",x,"is undefined")],
+	[
+	lasfld=v
+	]
+::
+
+entpsu
+MODIFY-FIELD modfld specify field to be modified, can add sub fields ..
+
+def pword<BP><N>
+N=PMWID CURMEM
+IF BP/\(777777)=0,
+	[KSPACE N],
+	[UNTIL N<=0,
+	  [kcput (bytget(bp)+@0)
+	  bp=bytinc bp
+	  n=n-1
+	  ]
+	]
+::
+
+
+DEF LLORD<L,SW><BP1,P>
+bp1=bytset(3,0,0)
+IF SW=0,
+	[
+	if memax curmem>7777,[V=-5,,10],[V=-4,,10]
+	pctl=v
+	print id l
+	kcput @/
+	kcput 11
+	],
+	[kspace (sw*8)]
+	pword(mandb l+BP1)
+if sw,
+	[
+	ftag l=on
+	if fld.s l,
+		[pctl=3,,10
+		print fld.s l
+		pctl=4,,10
+		print fld.p l
+		kcput (@ )
+		],
+		[kprstg "        "]
+	v=(@ )
+	if parent l,
+	  if defcld parent l=l,v=@*
+	kcput v
+	kprstg id l
+	]
+	kprstg "
+"
+kspace(max(sw,1)*8)
+
+
+	pword(mandv l+BP1)
+	kprcr
+if sw,
+	[
+	p=altsib l
+	until p=0,
+	 [
+	  kspace(8*(sw+1)+(sz curmem+2)/3)
+	  kprstg "  allow  "
+	  kprstg id id p	
+	  kprcr
+	  p=link p
+	 ]
+
+	P=CHILD L
+	if p,
+	[
+	kspace(8*sw+(sz curmem+2)/3)
+	kprstg "field values
+"
+	until p=0,
+	  [
+	  llord(p,sw+1)
+	  p=sibs p
+	  ]
+
+	]
+	]
+::
+
+
+def lout<><L>
+
+L=invert outcod curmem
+outcode curmem=L
+until l=0,
+	[
+	decode l
+	pdeco
+	Llord(l,0)
+	l=link l
+	]
+outcod curmem=invert outcod curmem
+::
+
+
+def llab<><I>
+I=LABELS
+UNTIL I=0,
+	[
+	PCTL=6,,10
+	print lval i
+	if lbldef i=0,kcput @*,kcput 40
+	kprstg id i
+	kprcr
+	i=link i
+	]
+::
+DEF LAS<><I>
+I=VALUES
+UNTIL I=0,
+	[
+	PCTL=0,,-10.
+	print sval i
+	kcput 11
+	kprstg id i
+	kprcr
+	i=link i
+	]
+::
+
+
+DEF LAF<><I,J,K,SO>
+
+	punchl
+
+SO=SYSOUT
+WHEN SYSIN>0,
+	[SYSOUT=LISTCH]
+
+I=ALLFLD CURMEM
+
+J=0
+UNTIL I=0,	;make a complete copy of the field list
+	[
+	IF PARENT I=0,
+	  [FTAG I=ON
+	   COPY I
+	   LINK V=J
+	   J=V
+	  ],
+	  [FTAG I=OFF]
+	I=LINK I
+	]
+I=0
+K=0
+IF J,
+	[
+	J=LLSORT(J,&FLD&.S)
+	I=J
+IF FLD.S J,
+	[K=J,I=0],
+	[
+	UNTIL LINK J=0,
+		[
+		IF FLD.S LINK J,	[K=LINK J,LINK J=0],
+					[J=LINK J]
+	
+		]
+	]
+	]
+;
+; now I is the list of random words,
+;     K is the list of top level fields
+kprstg "
+		Top level fields
+
+"
+IF K,K=LLSORT(K,&FLD&.P)
+J=K
+UNTIL K=0,
+	[
+	Llord(K,1)
+	K=LINK K
+	KPRCR
+	]
+
+kprstg "
+		Random word specifications
+
+"
+
+J=I
+UNTIL I=0,
+	[
+	LLORD(I,1)
+	I=LINK I
+	KPRCR
+	]
+scrap i
+scrap j
+
+
+J=0
+I=ALLFLD CURMEM
+until i=0,
+	[if ftag i=0,
+		[
+		if j=0,
+[kprstg "			Forgotten Fields
+
+"
+j=1
+]
+		llord(i,1)
+		]
+	i=link i
+	]
+
+sysout=so
+
+
+
+::
+entpsu
+LIST-FIELDS LAF list all the fields defined
+
+
+def %list
+listing=listing+1
+::
+def %xlist
+xlisting=on
+::
+entpsu
+LIST %list turn listing on
+entpsu
+XLIST %xlist turn listing off
+
+
+
+
+def par<a array,str>
+
+kprstg str
+pctl=-12.,,10
+if a,[repeat szw curmem,[print ww a,a=a+1]],
+     [kspace (szw curmem*12.)]
+::
+
+def lsym1<pt>
+
+pctl=-12.,,10
+par(mandb pt,"MB  ")
+kcput 11
+kprstg id pt
+kprcr
+par(mandv pt,"MV  ")
+kprcr
+::
+def lsym<L>
+until l=0,
+	[lsym1 l,l=link l]
+::
+global <curlst>
+	curlst=0
+def i<N>
+link new 'pair=curlst
+curlst=v
+id v=n
+::
+
+def il<X>
+sydecl(x,sconh,sptr,curlst,0,0)
+link last curlst=curlst
+curlst=0
+::
+
+def pr<X>
+repeat (!!(random)\length x),[x=link x]
+kprstg id x
+::
+
+I"Symbolic"
+I"Somewhat"
+I"Simplified"
+I"Self-contained"
+I"Scientific"
+I"Sophisticated"
+I"Standard"
+I"Superb"
+I"Systematic"
+
+il &l1
+
+I" Logically"
+I" Lexically"
+I" Loosely"
+I" Locally"
+I" Lethally"
+I" Liscentiously"
+I" Lucidly"
+
+il &l2
+
+I" Organized"
+I" Optimized"
+I" Ordered"
+I" Original"
+I" Outlandish"
+I" Overextended"
+I" Obfuscating"
+I" Offbeat"
+il &l3
+
+I" Equalizer"
+I" Encoder"
+I" Emulator"
+I" Entropizer"
+I" Emancipator"
+I" Enslaver"
+I" Euthanizer"
+I" Ephemerizer"
+
+il &l4
+
+def once<>
+if xcalli(0,24)/\777777/=0,
+	[
+	.logit("sloe.use[13,23]","run of sloe")
+	]
+randiv=xcalli(0,23)
+kprstg "
+	Sloe	-  "
+pr l1
+pr l2
+pr l3
+pr l4
+
+kprstg "
+
+FILE filespec		processes a file
+GRIPE			to send complaints/suggestions to Dave
+
+"
+
+::
+.prflg=-1
+
